@@ -18,13 +18,13 @@ import platform
 from google.protobuf import json_format
 
 try:
-    from openl1s import openl1s_pb2_grpc as pb2_grpc
+    from openl1s import l1s_pb_pb2_grpc as pb2_grpc
 except ImportError:
-    import openl1s_pb2_grpc as pb2_grpc
+    import l1s_pb_pb2_grpc as pb2_grpc
 try:
-    from openl1s import openl1s_pb2 as pb2
+    from openl1s import l1s_pb_pb2 as pb2
 except ImportError:
-    import openl1s_pb2 as pb2
+    import l1s_pb_pb2 as pb2
 
 try:
     from typing import Union, Dict, List, Any, Literal

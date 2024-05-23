@@ -1,4 +1,4 @@
-package goopenl1s
+package gol1s
 
 import (
 	"context"

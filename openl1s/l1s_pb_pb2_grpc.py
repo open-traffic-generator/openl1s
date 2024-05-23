@@ -3,10 +3,7 @@
 import grpc
 
 from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
-try:
-    import openl1s_pb2 as openl1s__pb2
-except ImportError:
-    from openl1s import openl1s_pb2 as openl1s__pb2
+import l1s_pb_pb2 as l1s__pb__pb2
 
 
 class OpenapiStub(object):
@@ -25,14 +22,14 @@ class OpenapiStub(object):
             channel: A grpc.Channel.
         """
         self.SetConfig = channel.unary_unary(
-                '/openl1s.Openapi/SetConfig',
-                request_serializer=openl1s__pb2.SetConfigRequest.SerializeToString,
-                response_deserializer=openl1s__pb2.SetConfigResponse.FromString,
+                '/l1s_pb.Openapi/SetConfig',
+                request_serializer=l1s__pb__pb2.SetConfigRequest.SerializeToString,
+                response_deserializer=l1s__pb__pb2.SetConfigResponse.FromString,
                 )
         self.GetVersion = channel.unary_unary(
-                '/openl1s.Openapi/GetVersion',
+                '/l1s_pb.Openapi/GetVersion',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-                response_deserializer=openl1s__pb2.GetVersionResponse.FromString,
+                response_deserializer=l1s__pb__pb2.GetVersionResponse.FromString,
                 )
 
 
@@ -64,17 +61,17 @@ def add_OpenapiServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'SetConfig': grpc.unary_unary_rpc_method_handler(
                     servicer.SetConfig,
-                    request_deserializer=openl1s__pb2.SetConfigRequest.FromString,
-                    response_serializer=openl1s__pb2.SetConfigResponse.SerializeToString,
+                    request_deserializer=l1s__pb__pb2.SetConfigRequest.FromString,
+                    response_serializer=l1s__pb__pb2.SetConfigResponse.SerializeToString,
             ),
             'GetVersion': grpc.unary_unary_rpc_method_handler(
                     servicer.GetVersion,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                    response_serializer=openl1s__pb2.GetVersionResponse.SerializeToString,
+                    response_serializer=l1s__pb__pb2.GetVersionResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'openl1s.Openapi', rpc_method_handlers)
+            'l1s_pb.Openapi', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
 
 
@@ -99,9 +96,9 @@ class Openapi(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/openl1s.Openapi/SetConfig',
-            openl1s__pb2.SetConfigRequest.SerializeToString,
-            openl1s__pb2.SetConfigResponse.FromString,
+        return grpc.experimental.unary_unary(request, target, '/l1s_pb.Openapi/SetConfig',
+            l1s__pb__pb2.SetConfigRequest.SerializeToString,
+            l1s__pb__pb2.SetConfigResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -116,8 +113,8 @@ class Openapi(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/openl1s.Openapi/GetVersion',
+        return grpc.experimental.unary_unary(request, target, '/l1s_pb.Openapi/GetVersion',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-            openl1s__pb2.GetVersionResponse.FromString,
+            l1s__pb__pb2.GetVersionResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

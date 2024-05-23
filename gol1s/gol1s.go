@@ -2,7 +2,7 @@
  * OTG L1S(Layer1Switch) Model
  * License: MIT */
 
-package goopenl1s
+package gol1s
 
 import (
 	"bytes"
@@ -16,7 +16,7 @@ import (
 	"strings"
 
 	"github.com/ghodss/yaml"
-	openl1s "github.com/open-traffic-generator/openl1s/goopenl1s/openl1s"
+	l1s_pb "github.com/open-traffic-generator/openl1s/gol1s/l1s_pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
@@ -83,15 +83,15 @@ type versionMeta struct {
 	remoteVersion Version
 	checkError    error
 }
-type goopenl1SApi struct {
+type gol1SApi struct {
 	apiSt
-	grpcClient  openl1s.OpenapiClient
+	grpcClient  l1s_pb.OpenapiClient
 	httpClient  httpClient
 	versionMeta *versionMeta
 }
 
 // grpcConnect builds up a grpc connection
-func (api *goopenl1SApi) grpcConnect() error {
+func (api *gol1SApi) grpcConnect() error {
 	if api.grpcClient == nil {
 		if api.grpc.clientConnection == nil {
 			ctx, cancelFunc := context.WithTimeout(context.Background(), api.grpc.dialTimeout)
@@ -100,16 +100,16 @@ func (api *goopenl1SApi) grpcConnect() error {
 			if err != nil {
 				return err
 			}
-			api.grpcClient = openl1s.NewOpenapiClient(conn)
+			api.grpcClient = l1s_pb.NewOpenapiClient(conn)
 			api.grpc.clientConnection = conn
 		} else {
-			api.grpcClient = openl1s.NewOpenapiClient(api.grpc.clientConnection)
+			api.grpcClient = l1s_pb.NewOpenapiClient(api.grpc.clientConnection)
 		}
 	}
 	return nil
 }
 
-func (api *goopenl1SApi) grpcClose() error {
+func (api *gol1SApi) grpcClose() error {
 	if api.grpc != nil {
 		if api.grpc.clientConnection != nil {
 			err := api.grpc.clientConnection.Close()
@@ -123,7 +123,7 @@ func (api *goopenl1SApi) grpcClose() error {
 	return nil
 }
 
-func (api *goopenl1SApi) Close() error {
+func (api *gol1SApi) Close() error {
 	if api.hasGrpcTransport() {
 		err := api.grpcClose()
 		return err
@@ -141,13 +141,13 @@ func (api *goopenl1SApi) Close() error {
 
 // NewApi returns a new instance of the top level interface hierarchy
 func NewApi() Api {
-	api := goopenl1SApi{}
+	api := gol1SApi{}
 	api.versionMeta = &versionMeta{checkVersion: false}
 	return &api
 }
 
 // httpConnect builds up a http connection
-func (api *goopenl1SApi) httpConnect() error {
+func (api *gol1SApi) httpConnect() error {
 	if api.httpClient.client == nil {
 		tr := http.Transport{
 			DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -183,7 +183,7 @@ func (api *goopenl1SApi) httpConnect() error {
 	return nil
 }
 
-func (api *goopenl1SApi) httpSendRecv(urlPath string, jsonBody string, method string) (*http.Response, error) {
+func (api *gol1SApi) httpSendRecv(urlPath string, jsonBody string, method string) (*http.Response, error) {
 	err := api.httpConnect()
 	if err != nil {
 		return nil, err
@@ -202,7 +202,7 @@ func (api *goopenl1SApi) httpSendRecv(urlPath string, jsonBody string, method st
 	return response, err
 }
 
-// Goopenl1SApi oTG L1S(Layer1Switch) Model
+// Gol1SApi oTG L1S(Layer1Switch) Model
 type Api interface {
 	api
 	// SetConfig create configuration for L1S
@@ -221,7 +221,7 @@ type Api interface {
 	CheckVersionCompatibility() error
 }
 
-func (api *goopenl1SApi) GetLocalVersion() Version {
+func (api *gol1SApi) GetLocalVersion() Version {
 	if api.versionMeta.localVersion == nil {
 		api.versionMeta.localVersion = NewVersion().SetApiSpecVersion("0.0.1").SetSdkVersion("0.0.1")
 	}
@@ -229,7 +229,7 @@ func (api *goopenl1SApi) GetLocalVersion() Version {
 	return api.versionMeta.localVersion
 }
 
-func (api *goopenl1SApi) GetRemoteVersion() (Version, error) {
+func (api *gol1SApi) GetRemoteVersion() (Version, error) {
 	if api.versionMeta.remoteVersion == nil {
 		v, err := api.GetVersion()
 		if err != nil {
@@ -242,11 +242,11 @@ func (api *goopenl1SApi) GetRemoteVersion() (Version, error) {
 	return api.versionMeta.remoteVersion, nil
 }
 
-func (api *goopenl1SApi) SetVersionCompatibilityCheck(v bool) {
+func (api *gol1SApi) SetVersionCompatibilityCheck(v bool) {
 	api.versionMeta.checkVersion = v
 }
 
-func (api *goopenl1SApi) checkLocalRemoteVersionCompatibility() (error, error) {
+func (api *gol1SApi) checkLocalRemoteVersionCompatibility() (error, error) {
 	localVer := api.GetLocalVersion()
 	remoteVer, err := api.GetRemoteVersion()
 	if err != nil {
@@ -263,7 +263,7 @@ func (api *goopenl1SApi) checkLocalRemoteVersionCompatibility() (error, error) {
 	return nil, nil
 }
 
-func (api *goopenl1SApi) checkLocalRemoteVersionCompatibilityOnce() error {
+func (api *gol1SApi) checkLocalRemoteVersionCompatibilityOnce() error {
 	if !api.versionMeta.checkVersion {
 		return nil
 	}
@@ -287,7 +287,7 @@ func (api *goopenl1SApi) checkLocalRemoteVersionCompatibilityOnce() error {
 	return nil
 }
 
-func (api *goopenl1SApi) CheckVersionCompatibility() error {
+func (api *gol1SApi) CheckVersionCompatibility() error {
 	compatErr, apiErr := api.checkLocalRemoteVersionCompatibility()
 	if compatErr != nil {
 		return fmt.Errorf("version error: %v", compatErr)
@@ -299,7 +299,7 @@ func (api *goopenl1SApi) CheckVersionCompatibility() error {
 	return nil
 }
 
-func (api *goopenl1SApi) SetConfig(config Config) (*string, error) {
+func (api *gol1SApi) SetConfig(config Config) (*string, error) {
 
 	if err := config.validate(); err != nil {
 		return nil, err
@@ -314,7 +314,7 @@ func (api *goopenl1SApi) SetConfig(config Config) (*string, error) {
 	if err := api.grpcConnect(); err != nil {
 		return nil, err
 	}
-	request := openl1s.SetConfigRequest{Config: config.msg()}
+	request := l1s_pb.SetConfigRequest{Config: config.msg()}
 	ctx, cancelFunc := context.WithTimeout(context.Background(), api.grpc.requestTimeout)
 	defer cancelFunc()
 	resp, err := api.grpcClient.SetConfig(ctx, &request)
@@ -331,7 +331,7 @@ func (api *goopenl1SApi) SetConfig(config Config) (*string, error) {
 	return nil, nil
 }
 
-func (api *goopenl1SApi) GetVersion() (Version, error) {
+func (api *gol1SApi) GetVersion() (Version, error) {
 
 	if api.hasHttpTransport() {
 		return api.httpGetVersion()
@@ -357,7 +357,7 @@ func (api *goopenl1SApi) GetVersion() (Version, error) {
 	return ret, nil
 }
 
-func (api *goopenl1SApi) httpSetConfig(config Config) (*string, error) {
+func (api *gol1SApi) httpSetConfig(config Config) (*string, error) {
 	configJson, err := config.Marshal().ToJson()
 	if err != nil {
 		return nil, err
@@ -380,7 +380,7 @@ func (api *goopenl1SApi) httpSetConfig(config Config) (*string, error) {
 	}
 }
 
-func (api *goopenl1SApi) httpGetVersion() (Version, error) {
+func (api *gol1SApi) httpGetVersion() (Version, error) {
 	resp, err := api.httpSendRecv("capabilities/version", "", "GET")
 	if err != nil {
 		return nil, err
@@ -404,23 +404,23 @@ func (api *goopenl1SApi) httpGetVersion() (Version, error) {
 // ***** Config *****
 type config struct {
 	validation
-	obj          *openl1s.Config
+	obj          *l1s_pb.Config
 	marshaller   marshalConfig
 	unMarshaller unMarshalConfig
 	linksHolder  ConfigLinkIter
 }
 
 func NewConfig() Config {
-	obj := config{obj: &openl1s.Config{}}
+	obj := config{obj: &l1s_pb.Config{}}
 	obj.setDefault()
 	return &obj
 }
 
-func (obj *config) msg() *openl1s.Config {
+func (obj *config) msg() *l1s_pb.Config {
 	return obj.obj
 }
 
-func (obj *config) setMsg(msg *openl1s.Config) Config {
+func (obj *config) setMsg(msg *l1s_pb.Config) Config {
 	obj.setNil()
 	proto.Merge(obj.obj, msg)
 	return obj
@@ -431,8 +431,8 @@ type marshalconfig struct {
 }
 
 type marshalConfig interface {
-	// ToProto marshals Config to protobuf object *openl1s.Config
-	ToProto() (*openl1s.Config, error)
+	// ToProto marshals Config to protobuf object *l1s_pb.Config
+	ToProto() (*l1s_pb.Config, error)
 	// ToPbText marshals Config to protobuf text
 	ToPbText() (string, error)
 	// ToYaml marshals Config to YAML text
@@ -446,8 +446,8 @@ type unMarshalconfig struct {
 }
 
 type unMarshalConfig interface {
-	// FromProto unmarshals Config from protobuf object *openl1s.Config
-	FromProto(msg *openl1s.Config) (Config, error)
+	// FromProto unmarshals Config from protobuf object *l1s_pb.Config
+	FromProto(msg *l1s_pb.Config) (Config, error)
 	// FromPbText unmarshals Config from protobuf text
 	FromPbText(value string) error
 	// FromYaml unmarshals Config from YAML text
@@ -470,7 +470,7 @@ func (obj *config) Unmarshal() unMarshalConfig {
 	return obj.unMarshaller
 }
 
-func (m *marshalconfig) ToProto() (*openl1s.Config, error) {
+func (m *marshalconfig) ToProto() (*l1s_pb.Config, error) {
 	err := m.obj.validateToAndFrom()
 	if err != nil {
 		return nil, err
@@ -478,7 +478,7 @@ func (m *marshalconfig) ToProto() (*openl1s.Config, error) {
 	return m.obj.msg(), nil
 }
 
-func (m *unMarshalconfig) FromProto(msg *openl1s.Config) (Config, error) {
+func (m *unMarshalconfig) FromProto(msg *l1s_pb.Config) (Config, error) {
 	newObj := m.obj.setMsg(msg)
 	err := newObj.validateToAndFrom()
 	if err != nil {
@@ -644,12 +644,12 @@ func (obj *config) setNil() {
 // Config is a container for L1S configuration.
 type Config interface {
 	Validation
-	// msg marshals Config to protobuf object *openl1s.Config
+	// msg marshals Config to protobuf object *l1s_pb.Config
 	// and doesn't set defaults
-	msg() *openl1s.Config
-	// setMsg unmarshals Config from protobuf object *openl1s.Config
+	msg() *l1s_pb.Config
+	// setMsg unmarshals Config from protobuf object *l1s_pb.Config
 	// and doesn't set defaults
-	setMsg(*openl1s.Config) Config
+	setMsg(*l1s_pb.Config) Config
 	// provides marshal interface
 	Marshal() marshalConfig
 	// provides unmarshal interface
@@ -672,7 +672,7 @@ type Config interface {
 // Links returns a []Link
 func (obj *config) Links() ConfigLinkIter {
 	if len(obj.obj.Links) == 0 {
-		obj.obj.Links = []*openl1s.Link{}
+		obj.obj.Links = []*l1s_pb.Link{}
 	}
 	if obj.linksHolder == nil {
 		obj.linksHolder = newConfigLinkIter(&obj.obj.Links).setMsg(obj)
@@ -683,10 +683,10 @@ func (obj *config) Links() ConfigLinkIter {
 type configLinkIter struct {
 	obj       *config
 	linkSlice []Link
-	fieldPtr  *[]*openl1s.Link
+	fieldPtr  *[]*l1s_pb.Link
 }
 
-func newConfigLinkIter(ptr *[]*openl1s.Link) ConfigLinkIter {
+func newConfigLinkIter(ptr *[]*l1s_pb.Link) ConfigLinkIter {
 	return &configLinkIter{fieldPtr: ptr}
 }
 
@@ -715,7 +715,7 @@ func (obj *configLinkIter) Items() []Link {
 }
 
 func (obj *configLinkIter) Add() Link {
-	newObj := &openl1s.Link{}
+	newObj := &l1s_pb.Link{}
 	*obj.fieldPtr = append(*obj.fieldPtr, newObj)
 	newLibObj := &link{obj: newObj}
 	newLibObj.setDefault()
@@ -739,7 +739,7 @@ func (obj *configLinkIter) Set(index int, newObj Link) ConfigLinkIter {
 }
 func (obj *configLinkIter) Clear() ConfigLinkIter {
 	if len(*obj.fieldPtr) > 0 {
-		*obj.fieldPtr = []*openl1s.Link{}
+		*obj.fieldPtr = []*l1s_pb.Link{}
 		obj.linkSlice = []Link{}
 	}
 	return obj
@@ -783,22 +783,22 @@ func (obj *config) setDefault() {
 // ***** SetConfigResponse *****
 type setConfigResponse struct {
 	validation
-	obj          *openl1s.SetConfigResponse
+	obj          *l1s_pb.SetConfigResponse
 	marshaller   marshalSetConfigResponse
 	unMarshaller unMarshalSetConfigResponse
 }
 
 func NewSetConfigResponse() SetConfigResponse {
-	obj := setConfigResponse{obj: &openl1s.SetConfigResponse{}}
+	obj := setConfigResponse{obj: &l1s_pb.SetConfigResponse{}}
 	obj.setDefault()
 	return &obj
 }
 
-func (obj *setConfigResponse) msg() *openl1s.SetConfigResponse {
+func (obj *setConfigResponse) msg() *l1s_pb.SetConfigResponse {
 	return obj.obj
 }
 
-func (obj *setConfigResponse) setMsg(msg *openl1s.SetConfigResponse) SetConfigResponse {
+func (obj *setConfigResponse) setMsg(msg *l1s_pb.SetConfigResponse) SetConfigResponse {
 
 	proto.Merge(obj.obj, msg)
 	return obj
@@ -809,8 +809,8 @@ type marshalsetConfigResponse struct {
 }
 
 type marshalSetConfigResponse interface {
-	// ToProto marshals SetConfigResponse to protobuf object *openl1s.SetConfigResponse
-	ToProto() (*openl1s.SetConfigResponse, error)
+	// ToProto marshals SetConfigResponse to protobuf object *l1s_pb.SetConfigResponse
+	ToProto() (*l1s_pb.SetConfigResponse, error)
 	// ToPbText marshals SetConfigResponse to protobuf text
 	ToPbText() (string, error)
 	// ToYaml marshals SetConfigResponse to YAML text
@@ -824,8 +824,8 @@ type unMarshalsetConfigResponse struct {
 }
 
 type unMarshalSetConfigResponse interface {
-	// FromProto unmarshals SetConfigResponse from protobuf object *openl1s.SetConfigResponse
-	FromProto(msg *openl1s.SetConfigResponse) (SetConfigResponse, error)
+	// FromProto unmarshals SetConfigResponse from protobuf object *l1s_pb.SetConfigResponse
+	FromProto(msg *l1s_pb.SetConfigResponse) (SetConfigResponse, error)
 	// FromPbText unmarshals SetConfigResponse from protobuf text
 	FromPbText(value string) error
 	// FromYaml unmarshals SetConfigResponse from YAML text
@@ -848,7 +848,7 @@ func (obj *setConfigResponse) Unmarshal() unMarshalSetConfigResponse {
 	return obj.unMarshaller
 }
 
-func (m *marshalsetConfigResponse) ToProto() (*openl1s.SetConfigResponse, error) {
+func (m *marshalsetConfigResponse) ToProto() (*l1s_pb.SetConfigResponse, error) {
 	err := m.obj.validateToAndFrom()
 	if err != nil {
 		return nil, err
@@ -856,7 +856,7 @@ func (m *marshalsetConfigResponse) ToProto() (*openl1s.SetConfigResponse, error)
 	return m.obj.msg(), nil
 }
 
-func (m *unMarshalsetConfigResponse) FromProto(msg *openl1s.SetConfigResponse) (SetConfigResponse, error) {
+func (m *unMarshalsetConfigResponse) FromProto(msg *l1s_pb.SetConfigResponse) (SetConfigResponse, error) {
 	newObj := m.obj.setMsg(msg)
 	err := newObj.validateToAndFrom()
 	if err != nil {
@@ -1015,12 +1015,12 @@ func (obj *setConfigResponse) Clone() (SetConfigResponse, error) {
 // SetConfigResponse is description is TBD
 type SetConfigResponse interface {
 	Validation
-	// msg marshals SetConfigResponse to protobuf object *openl1s.SetConfigResponse
+	// msg marshals SetConfigResponse to protobuf object *l1s_pb.SetConfigResponse
 	// and doesn't set defaults
-	msg() *openl1s.SetConfigResponse
-	// setMsg unmarshals SetConfigResponse from protobuf object *openl1s.SetConfigResponse
+	msg() *l1s_pb.SetConfigResponse
+	// setMsg unmarshals SetConfigResponse from protobuf object *l1s_pb.SetConfigResponse
 	// and doesn't set defaults
-	setMsg(*openl1s.SetConfigResponse) SetConfigResponse
+	setMsg(*l1s_pb.SetConfigResponse) SetConfigResponse
 	// provides marshal interface
 	Marshal() marshalSetConfigResponse
 	// provides unmarshal interface
@@ -1075,23 +1075,23 @@ func (obj *setConfigResponse) setDefault() {
 // ***** GetVersionResponse *****
 type getVersionResponse struct {
 	validation
-	obj           *openl1s.GetVersionResponse
+	obj           *l1s_pb.GetVersionResponse
 	marshaller    marshalGetVersionResponse
 	unMarshaller  unMarshalGetVersionResponse
 	versionHolder Version
 }
 
 func NewGetVersionResponse() GetVersionResponse {
-	obj := getVersionResponse{obj: &openl1s.GetVersionResponse{}}
+	obj := getVersionResponse{obj: &l1s_pb.GetVersionResponse{}}
 	obj.setDefault()
 	return &obj
 }
 
-func (obj *getVersionResponse) msg() *openl1s.GetVersionResponse {
+func (obj *getVersionResponse) msg() *l1s_pb.GetVersionResponse {
 	return obj.obj
 }
 
-func (obj *getVersionResponse) setMsg(msg *openl1s.GetVersionResponse) GetVersionResponse {
+func (obj *getVersionResponse) setMsg(msg *l1s_pb.GetVersionResponse) GetVersionResponse {
 	obj.setNil()
 	proto.Merge(obj.obj, msg)
 	return obj
@@ -1102,8 +1102,8 @@ type marshalgetVersionResponse struct {
 }
 
 type marshalGetVersionResponse interface {
-	// ToProto marshals GetVersionResponse to protobuf object *openl1s.GetVersionResponse
-	ToProto() (*openl1s.GetVersionResponse, error)
+	// ToProto marshals GetVersionResponse to protobuf object *l1s_pb.GetVersionResponse
+	ToProto() (*l1s_pb.GetVersionResponse, error)
 	// ToPbText marshals GetVersionResponse to protobuf text
 	ToPbText() (string, error)
 	// ToYaml marshals GetVersionResponse to YAML text
@@ -1117,8 +1117,8 @@ type unMarshalgetVersionResponse struct {
 }
 
 type unMarshalGetVersionResponse interface {
-	// FromProto unmarshals GetVersionResponse from protobuf object *openl1s.GetVersionResponse
-	FromProto(msg *openl1s.GetVersionResponse) (GetVersionResponse, error)
+	// FromProto unmarshals GetVersionResponse from protobuf object *l1s_pb.GetVersionResponse
+	FromProto(msg *l1s_pb.GetVersionResponse) (GetVersionResponse, error)
 	// FromPbText unmarshals GetVersionResponse from protobuf text
 	FromPbText(value string) error
 	// FromYaml unmarshals GetVersionResponse from YAML text
@@ -1141,7 +1141,7 @@ func (obj *getVersionResponse) Unmarshal() unMarshalGetVersionResponse {
 	return obj.unMarshaller
 }
 
-func (m *marshalgetVersionResponse) ToProto() (*openl1s.GetVersionResponse, error) {
+func (m *marshalgetVersionResponse) ToProto() (*l1s_pb.GetVersionResponse, error) {
 	err := m.obj.validateToAndFrom()
 	if err != nil {
 		return nil, err
@@ -1149,7 +1149,7 @@ func (m *marshalgetVersionResponse) ToProto() (*openl1s.GetVersionResponse, erro
 	return m.obj.msg(), nil
 }
 
-func (m *unMarshalgetVersionResponse) FromProto(msg *openl1s.GetVersionResponse) (GetVersionResponse, error) {
+func (m *unMarshalgetVersionResponse) FromProto(msg *l1s_pb.GetVersionResponse) (GetVersionResponse, error) {
 	newObj := m.obj.setMsg(msg)
 	err := newObj.validateToAndFrom()
 	if err != nil {
@@ -1315,12 +1315,12 @@ func (obj *getVersionResponse) setNil() {
 // GetVersionResponse is description is TBD
 type GetVersionResponse interface {
 	Validation
-	// msg marshals GetVersionResponse to protobuf object *openl1s.GetVersionResponse
+	// msg marshals GetVersionResponse to protobuf object *l1s_pb.GetVersionResponse
 	// and doesn't set defaults
-	msg() *openl1s.GetVersionResponse
-	// setMsg unmarshals GetVersionResponse from protobuf object *openl1s.GetVersionResponse
+	msg() *l1s_pb.GetVersionResponse
+	// setMsg unmarshals GetVersionResponse from protobuf object *l1s_pb.GetVersionResponse
 	// and doesn't set defaults
-	setMsg(*openl1s.GetVersionResponse) GetVersionResponse
+	setMsg(*l1s_pb.GetVersionResponse) GetVersionResponse
 	// provides marshal interface
 	Marshal() marshalGetVersionResponse
 	// provides unmarshal interface
@@ -1392,22 +1392,22 @@ func (obj *getVersionResponse) setDefault() {
 // ***** Link *****
 type link struct {
 	validation
-	obj          *openl1s.Link
+	obj          *l1s_pb.Link
 	marshaller   marshalLink
 	unMarshaller unMarshalLink
 }
 
 func NewLink() Link {
-	obj := link{obj: &openl1s.Link{}}
+	obj := link{obj: &l1s_pb.Link{}}
 	obj.setDefault()
 	return &obj
 }
 
-func (obj *link) msg() *openl1s.Link {
+func (obj *link) msg() *l1s_pb.Link {
 	return obj.obj
 }
 
-func (obj *link) setMsg(msg *openl1s.Link) Link {
+func (obj *link) setMsg(msg *l1s_pb.Link) Link {
 
 	proto.Merge(obj.obj, msg)
 	return obj
@@ -1418,8 +1418,8 @@ type marshallink struct {
 }
 
 type marshalLink interface {
-	// ToProto marshals Link to protobuf object *openl1s.Link
-	ToProto() (*openl1s.Link, error)
+	// ToProto marshals Link to protobuf object *l1s_pb.Link
+	ToProto() (*l1s_pb.Link, error)
 	// ToPbText marshals Link to protobuf text
 	ToPbText() (string, error)
 	// ToYaml marshals Link to YAML text
@@ -1433,8 +1433,8 @@ type unMarshallink struct {
 }
 
 type unMarshalLink interface {
-	// FromProto unmarshals Link from protobuf object *openl1s.Link
-	FromProto(msg *openl1s.Link) (Link, error)
+	// FromProto unmarshals Link from protobuf object *l1s_pb.Link
+	FromProto(msg *l1s_pb.Link) (Link, error)
 	// FromPbText unmarshals Link from protobuf text
 	FromPbText(value string) error
 	// FromYaml unmarshals Link from YAML text
@@ -1457,7 +1457,7 @@ func (obj *link) Unmarshal() unMarshalLink {
 	return obj.unMarshaller
 }
 
-func (m *marshallink) ToProto() (*openl1s.Link, error) {
+func (m *marshallink) ToProto() (*l1s_pb.Link, error) {
 	err := m.obj.validateToAndFrom()
 	if err != nil {
 		return nil, err
@@ -1465,7 +1465,7 @@ func (m *marshallink) ToProto() (*openl1s.Link, error) {
 	return m.obj.msg(), nil
 }
 
-func (m *unMarshallink) FromProto(msg *openl1s.Link) (Link, error) {
+func (m *unMarshallink) FromProto(msg *l1s_pb.Link) (Link, error) {
 	newObj := m.obj.setMsg(msg)
 	err := newObj.validateToAndFrom()
 	if err != nil {
@@ -1624,12 +1624,12 @@ func (obj *link) Clone() (Link, error) {
 // Link is link between the Ports.
 type Link interface {
 	Validation
-	// msg marshals Link to protobuf object *openl1s.Link
+	// msg marshals Link to protobuf object *l1s_pb.Link
 	// and doesn't set defaults
-	msg() *openl1s.Link
-	// setMsg unmarshals Link from protobuf object *openl1s.Link
+	msg() *l1s_pb.Link
+	// setMsg unmarshals Link from protobuf object *l1s_pb.Link
 	// and doesn't set defaults
-	setMsg(*openl1s.Link) Link
+	setMsg(*l1s_pb.Link) Link
 	// provides marshal interface
 	Marshal() marshalLink
 	// provides unmarshal interface
@@ -1713,13 +1713,13 @@ func (obj *link) HasMode() bool {
 }
 
 func (obj *link) SetMode(value LinkModeEnum) Link {
-	intValue, ok := openl1s.Link_Mode_Enum_value[string(value)]
+	intValue, ok := l1s_pb.Link_Mode_Enum_value[string(value)]
 	if !ok {
 		obj.validationErrors = append(obj.validationErrors, fmt.Sprintf(
 			"%s is not a valid choice on LinkModeEnum", string(value)))
 		return obj
 	}
-	enumValue := openl1s.Link_Mode_Enum(intValue)
+	enumValue := l1s_pb.Link_Mode_Enum(intValue)
 	obj.obj.Mode = &enumValue
 
 	return obj
@@ -1752,22 +1752,22 @@ func (obj *link) setDefault() {
 // ***** Error *****
 type _error struct {
 	validation
-	obj          *openl1s.Error
+	obj          *l1s_pb.Error
 	marshaller   marshalError
 	unMarshaller unMarshalError
 }
 
 func NewError() Error {
-	obj := _error{obj: &openl1s.Error{}}
+	obj := _error{obj: &l1s_pb.Error{}}
 	obj.setDefault()
 	return &obj
 }
 
-func (obj *_error) msg() *openl1s.Error {
+func (obj *_error) msg() *l1s_pb.Error {
 	return obj.obj
 }
 
-func (obj *_error) setMsg(msg *openl1s.Error) Error {
+func (obj *_error) setMsg(msg *l1s_pb.Error) Error {
 
 	proto.Merge(obj.obj, msg)
 	return obj
@@ -1778,8 +1778,8 @@ type marshal_error struct {
 }
 
 type marshalError interface {
-	// ToProto marshals Error to protobuf object *openl1s.Error
-	ToProto() (*openl1s.Error, error)
+	// ToProto marshals Error to protobuf object *l1s_pb.Error
+	ToProto() (*l1s_pb.Error, error)
 	// ToPbText marshals Error to protobuf text
 	ToPbText() (string, error)
 	// ToYaml marshals Error to YAML text
@@ -1793,8 +1793,8 @@ type unMarshal_error struct {
 }
 
 type unMarshalError interface {
-	// FromProto unmarshals Error from protobuf object *openl1s.Error
-	FromProto(msg *openl1s.Error) (Error, error)
+	// FromProto unmarshals Error from protobuf object *l1s_pb.Error
+	FromProto(msg *l1s_pb.Error) (Error, error)
 	// FromPbText unmarshals Error from protobuf text
 	FromPbText(value string) error
 	// FromYaml unmarshals Error from YAML text
@@ -1817,7 +1817,7 @@ func (obj *_error) Unmarshal() unMarshalError {
 	return obj.unMarshaller
 }
 
-func (m *marshal_error) ToProto() (*openl1s.Error, error) {
+func (m *marshal_error) ToProto() (*l1s_pb.Error, error) {
 	err := m.obj.validateToAndFrom()
 	if err != nil {
 		return nil, err
@@ -1825,7 +1825,7 @@ func (m *marshal_error) ToProto() (*openl1s.Error, error) {
 	return m.obj.msg(), nil
 }
 
-func (m *unMarshal_error) FromProto(msg *openl1s.Error) (Error, error) {
+func (m *unMarshal_error) FromProto(msg *l1s_pb.Error) (Error, error) {
 	newObj := m.obj.setMsg(msg)
 	err := newObj.validateToAndFrom()
 	if err != nil {
@@ -1984,12 +1984,12 @@ func (obj *_error) Clone() (Error, error) {
 // Error is error response generated while serving API request.
 type Error interface {
 	Validation
-	// msg marshals Error to protobuf object *openl1s.Error
+	// msg marshals Error to protobuf object *l1s_pb.Error
 	// and doesn't set defaults
-	msg() *openl1s.Error
-	// setMsg unmarshals Error from protobuf object *openl1s.Error
+	msg() *l1s_pb.Error
+	// setMsg unmarshals Error from protobuf object *l1s_pb.Error
 	// and doesn't set defaults
-	setMsg(*openl1s.Error) Error
+	setMsg(*l1s_pb.Error) Error
 	// provides marshal interface
 	Marshal() marshalError
 	// provides unmarshal interface
@@ -2076,13 +2076,13 @@ func (obj *_error) HasKind() bool {
 }
 
 func (obj *_error) SetKind(value ErrorKindEnum) Error {
-	intValue, ok := openl1s.Error_Kind_Enum_value[string(value)]
+	intValue, ok := l1s_pb.Error_Kind_Enum_value[string(value)]
 	if !ok {
 		obj.validationErrors = append(obj.validationErrors, fmt.Sprintf(
 			"%s is not a valid choice on ErrorKindEnum", string(value)))
 		return obj
 	}
-	enumValue := openl1s.Error_Kind_Enum(intValue)
+	enumValue := l1s_pb.Error_Kind_Enum(intValue)
 	obj.obj.Kind = &enumValue
 
 	return obj
@@ -2127,22 +2127,22 @@ func (obj *_error) setDefault() {
 // ***** Version *****
 type version struct {
 	validation
-	obj          *openl1s.Version
+	obj          *l1s_pb.Version
 	marshaller   marshalVersion
 	unMarshaller unMarshalVersion
 }
 
 func NewVersion() Version {
-	obj := version{obj: &openl1s.Version{}}
+	obj := version{obj: &l1s_pb.Version{}}
 	obj.setDefault()
 	return &obj
 }
 
-func (obj *version) msg() *openl1s.Version {
+func (obj *version) msg() *l1s_pb.Version {
 	return obj.obj
 }
 
-func (obj *version) setMsg(msg *openl1s.Version) Version {
+func (obj *version) setMsg(msg *l1s_pb.Version) Version {
 
 	proto.Merge(obj.obj, msg)
 	return obj
@@ -2153,8 +2153,8 @@ type marshalversion struct {
 }
 
 type marshalVersion interface {
-	// ToProto marshals Version to protobuf object *openl1s.Version
-	ToProto() (*openl1s.Version, error)
+	// ToProto marshals Version to protobuf object *l1s_pb.Version
+	ToProto() (*l1s_pb.Version, error)
 	// ToPbText marshals Version to protobuf text
 	ToPbText() (string, error)
 	// ToYaml marshals Version to YAML text
@@ -2168,8 +2168,8 @@ type unMarshalversion struct {
 }
 
 type unMarshalVersion interface {
-	// FromProto unmarshals Version from protobuf object *openl1s.Version
-	FromProto(msg *openl1s.Version) (Version, error)
+	// FromProto unmarshals Version from protobuf object *l1s_pb.Version
+	FromProto(msg *l1s_pb.Version) (Version, error)
 	// FromPbText unmarshals Version from protobuf text
 	FromPbText(value string) error
 	// FromYaml unmarshals Version from YAML text
@@ -2192,7 +2192,7 @@ func (obj *version) Unmarshal() unMarshalVersion {
 	return obj.unMarshaller
 }
 
-func (m *marshalversion) ToProto() (*openl1s.Version, error) {
+func (m *marshalversion) ToProto() (*l1s_pb.Version, error) {
 	err := m.obj.validateToAndFrom()
 	if err != nil {
 		return nil, err
@@ -2200,7 +2200,7 @@ func (m *marshalversion) ToProto() (*openl1s.Version, error) {
 	return m.obj.msg(), nil
 }
 
-func (m *unMarshalversion) FromProto(msg *openl1s.Version) (Version, error) {
+func (m *unMarshalversion) FromProto(msg *l1s_pb.Version) (Version, error) {
 	newObj := m.obj.setMsg(msg)
 	err := newObj.validateToAndFrom()
 	if err != nil {
@@ -2359,12 +2359,12 @@ func (obj *version) Clone() (Version, error) {
 // Version is version details
 type Version interface {
 	Validation
-	// msg marshals Version to protobuf object *openl1s.Version
+	// msg marshals Version to protobuf object *l1s_pb.Version
 	// and doesn't set defaults
-	msg() *openl1s.Version
-	// setMsg unmarshals Version from protobuf object *openl1s.Version
+	msg() *l1s_pb.Version
+	// setMsg unmarshals Version from protobuf object *l1s_pb.Version
 	// and doesn't set defaults
-	setMsg(*openl1s.Version) Version
+	setMsg(*l1s_pb.Version) Version
 	// provides marshal interface
 	Marshal() marshalVersion
 	// provides unmarshal interface

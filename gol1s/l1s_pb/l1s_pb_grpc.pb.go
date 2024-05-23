@@ -2,9 +2,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.2.0
 // - protoc             v3.20.3
-// source: openl1s.proto
+// source: l1s_pb.proto
 
-package openl1s
+package l1s_pb
 
 import (
 	context "context"
@@ -40,7 +40,7 @@ func NewOpenapiClient(cc grpc.ClientConnInterface) OpenapiClient {
 
 func (c *openapiClient) SetConfig(ctx context.Context, in *SetConfigRequest, opts ...grpc.CallOption) (*SetConfigResponse, error) {
 	out := new(SetConfigResponse)
-	err := c.cc.Invoke(ctx, "/openl1s.Openapi/SetConfig", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/l1s_pb.Openapi/SetConfig", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +49,7 @@ func (c *openapiClient) SetConfig(ctx context.Context, in *SetConfigRequest, opt
 
 func (c *openapiClient) GetVersion(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*GetVersionResponse, error) {
 	out := new(GetVersionResponse)
-	err := c.cc.Invoke(ctx, "/openl1s.Openapi/GetVersion", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/l1s_pb.Openapi/GetVersion", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func _Openapi_SetConfig_Handler(srv interface{}, ctx context.Context, dec func(i
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/openl1s.Openapi/SetConfig",
+		FullMethod: "/l1s_pb.Openapi/SetConfig",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(OpenapiServer).SetConfig(ctx, req.(*SetConfigRequest))
@@ -118,7 +118,7 @@ func _Openapi_GetVersion_Handler(srv interface{}, ctx context.Context, dec func(
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/openl1s.Openapi/GetVersion",
+		FullMethod: "/l1s_pb.Openapi/GetVersion",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(OpenapiServer).GetVersion(ctx, req.(*emptypb.Empty))
@@ -130,7 +130,7 @@ func _Openapi_GetVersion_Handler(srv interface{}, ctx context.Context, dec func(
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var Openapi_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "openl1s.Openapi",
+	ServiceName: "l1s_pb.Openapi",
 	HandlerType: (*OpenapiServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -143,5 +143,5 @@ var Openapi_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "openl1s.proto",
+	Metadata: "l1s_pb.proto",
 }

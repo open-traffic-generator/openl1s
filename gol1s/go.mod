@@ -1,4 +1,4 @@
-module github.com/open-traffic-generator/openl1s/goopenl1s
+module github.com/open-traffic-generator/openl1s/gol1s
 
 go 1.16
 

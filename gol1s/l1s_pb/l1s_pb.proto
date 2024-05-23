@@ -4,9 +4,9 @@
 
 syntax = "proto3";
 
-package openl1s;
+package l1s_pb;
 
-option go_package = "./openl1s;openl1s";
+option go_package = "./l1s_pb;l1s_pb";
 
 import "google/protobuf/descriptor.proto";
 import "google/protobuf/empty.proto";
