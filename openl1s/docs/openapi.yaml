@@ -1,0 +1,189 @@
+openapi: 3.0.3
+info:
+  title: Open Traffic Generator L1S(Layer1Switch) Model API
+  description: |-
+    OTG L1S(Layer1Switch) Model
+  version: 0.0.1
+  contact:
+    url: https://github.com/open-traffic-generator/l1s
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+servers:
+- url: /
+paths:
+  /config:
+    post:
+      tags:
+      - Configuration
+      operationId: set_config
+      description: |-
+        Create configuration for L1S
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Config'
+      responses:
+        '200':
+          description: |-
+            Return response from the l1s.
+          content:
+            application/json:
+              schema:
+                type: string
+          x-field-uid: 1
+        default:
+          $ref: '#/components/responses/Failure'
+          x-field-uid: 2
+  /capabilities/version:
+    get:
+      tags:
+      - Capabilities
+      operationId: get_version
+      responses:
+        '200':
+          description: |-
+            Version details from API server
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Version'
+          x-field-uid: 1
+        default:
+          $ref: '#/components/responses/Failure'
+          x-field-uid: 2
+components:
+  responses:
+    Success:
+      description: "The request has succeeded with no application content but the\
+        \ server \nmay return a list of detailed warnings."
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Warning'
+    Failure:
+      description: |-
+        The request did not succeed and server has responded with error details.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Config:
+      description: |-
+        A container for L1S configuration.
+      type: object
+      properties:
+        links:
+          description: |-
+            Connection between ports within a switch.
+          type: array
+          items:
+            $ref: '#/components/schemas/Link'
+          x-field-uid: 1
+    Link:
+      description: |-
+        Link between the Ports.
+      type: object
+      required:
+      - src
+      - dst
+      properties:
+        src:
+          description: |-
+            Src for the link.
+          type: string
+          x-field-uid: 1
+        dst:
+          description: |-
+            Dst of the link.
+          type: string
+          x-field-uid: 2
+        mode:
+          type: string
+          x-field-uid: 3
+          default: bidirectional
+          x-enum:
+            unidirectional:
+              x-field-uid: 1
+            bidirectional:
+              x-field-uid: 2
+          enum:
+          - unidirectional
+          - bidirectional
+    Error:
+      description: |-
+        Error response generated while serving API request.
+      type: object
+      required:
+      - code
+      - errors
+      properties:
+        code:
+          description: |-
+            Numeric status code based on the underlying transport being used.
+            The API server MUST set this code explicitly based on following references:
+              - HTTP 4xx errors: https://datatracker.ietf.org/doc/html/rfc9110#section-15.5
+              - HTTP 5xx errors: https://datatracker.ietf.org/doc/html/rfc9110#section-15.6
+              - gRPC errors: https://grpc.github.io/grpc/core/md_doc_statuscodes.html
+          type: integer
+          format: int32
+          x-field-uid: 1
+        kind:
+          description: |-
+            Classification of error originating from within API server that may not be mapped to the value in `code`.
+            Absence of this field may indicate that the error did not originate from within API server.
+          type: string
+          x-enum:
+            validation:
+              x-field-uid: 1
+            internal:
+              x-field-uid: 2
+          x-field-uid: 2
+          enum:
+          - validation
+          - internal
+        errors:
+          description: |-
+            List of error messages generated while executing the request.
+          type: array
+          items:
+            type: string
+          x-field-uid: 3
+    Warning:
+      description: |-
+        A list of warnings that have occurred while executing the request.
+      type: object
+      properties:
+        warnings:
+          description: "A list of any system specific warnings that have occurred\
+            \ while \nexecuting the request."
+          type: array
+          items:
+            type: string
+          x-field-uid: 1
+    Version:
+      description: |-
+        Version details
+      type: object
+      properties:
+        api_spec_version:
+          description: |-
+            Version of API specification
+          type: string
+          default: ''
+          x-field-uid: 1
+        sdk_version:
+          description: |-
+            Version of SDK generated from API specification
+          type: string
+          default: ''
+          x-field-uid: 2
+        app_version:
+          description: |-
+            Version of application consuming or serving the API
+          type: string
+          default: ''
+          x-field-uid: 3
