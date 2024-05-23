@@ -1,0 +1,10 @@
+python
+goclient
+artifacts
+/openapiart
+debug.log
+*.pyc
+__pycache__
+.env/
+env/
+gol1s/
