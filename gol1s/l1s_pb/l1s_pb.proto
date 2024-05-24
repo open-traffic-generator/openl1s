@@ -1,0 +1,131 @@
+/* Open Traffic Generator L1S(Layer1Switch) Model API 0.0.1
+ * OTG L1S(Layer1Switch) Model
+ * License: MIT */
+
+syntax = "proto3";
+
+package l1s_pb;
+
+option go_package = "./l1s_pb;l1s_pb";
+
+import "google/protobuf/descriptor.proto";
+import "google/protobuf/empty.proto";
+
+// A container for L1S configuration.
+message Config {
+
+  // Connection between ports within a switch.
+  repeated Link links = 1;
+}
+
+// Link between the Ports.
+message Link {
+
+  // Src for the link.
+  // required = true
+  optional string src = 1;
+
+  // Dst of the link.
+  // required = true
+  optional string dst = 2;
+
+  message Mode {
+    enum Enum {
+      unspecified = 0;
+      unidirectional = 1;
+      bidirectional = 2;
+    }
+  }
+  // Description missing in models
+  // default = Mode.Enum.bidirectional
+  optional Mode.Enum mode = 3;
+}
+
+// Error response generated while serving API request.
+message Error {
+
+  // Numeric status code based on the underlying transport being used.
+  // The API server MUST set this code explicitly based on following references:
+  // - HTTP 4xx errors: https://datatracker.ietf.org/doc/html/rfc9110#section-15.5
+  // - HTTP 5xx errors: https://datatracker.ietf.org/doc/html/rfc9110#section-15.6
+  // - gRPC errors: https://grpc.github.io/grpc/core/md_doc_statuscodes.html
+  // required = true
+  optional int32 code = 1;
+
+  message Kind {
+    enum Enum {
+      unspecified = 0;
+      validation = 1;
+      internal = 2;
+    }
+  }
+  // Classification of error originating from within API server that may not be mapped
+  // to the value in `code`.
+  // Absence of this field may indicate that the error did not originate from within API
+  // server.
+  optional Kind.Enum kind = 2;
+
+  // List of error messages generated while executing the request.
+  repeated string errors = 3;
+}
+
+// A list of warnings that have occurred while executing the request.
+message Warning {
+
+  // A list of any system specific warnings that have occurred while
+  // executing the request.
+  repeated string warnings = 1;
+}
+
+// Version details
+message Version {
+
+  // Version of API specification
+  // default =
+  optional string api_spec_version = 1;
+
+  // Version of SDK generated from API specification
+  // default =
+  optional string sdk_version = 2;
+
+  // Version of application consuming or serving the API
+  // default =
+  optional string app_version = 3;
+}
+
+// The request has succeeded with no application content but the server
+// may return a list of detailed warnings.
+message Success {
+  Warning warning = 1;
+}
+
+// The request did not succeed and server has responded with error details.
+message Failure {
+  Error error = 1;
+}
+
+message SetConfigRequest {
+  Config config = 1;
+}
+message SetConfigResponse {
+  string string = 1;
+}
+
+message GetVersionResponse {
+  Version version = 1;
+}
+
+
+// Description missing in models
+//
+// For all RPCs defined in this service, API Server SHOULD provide JSON
+// representation of `Error` message as an error string upon failure, ensuring
+// name of enum constants (instead of value) for `kind` property is present
+// in the representation
+service Openapi {
+
+  // Create configuration for L1S
+  rpc SetConfig(SetConfigRequest) returns (SetConfigResponse);
+  // Description missing in models
+  rpc GetVersion(google.protobuf.Empty) returns (GetVersionResponse);
+}
