@@ -12,6 +12,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 )
 
 type grpcTransport struct {
@@ -115,13 +116,13 @@ func (obj *httpTransport) SetVerify(value bool) HttpTransport {
 	return obj
 }
 
-type apiSt struct {
+type api struct {
 	grpc     *grpcTransport
 	http     *httpTransport
 	warnings string
 }
 
-type api interface {
+type Api interface {
 	NewGrpcTransport() GrpcTransport
 	hasGrpcTransport() bool
 	NewHttpTransport() HttpTransport
@@ -129,14 +130,17 @@ type api interface {
 	Close() error
 	// Warnings Api is only for testing purpose
 	// and not intended to use in production
-	getWarnings() string
+	Warnings() string
 	deprecated(message string)
 	under_review(message string)
 	addWarnings(message string)
+	fromHttpError(statusCode int, body []byte) Error
+	fromGrpcError(err error) (Error, bool)
+	FromError(err error) (Error, bool)
 }
 
 // NewGrpcTransport sets the underlying transport of the Api as grpc
-func (api *apiSt) NewGrpcTransport() GrpcTransport {
+func (api *api) NewGrpcTransport() GrpcTransport {
 	api.grpc = &grpcTransport{
 		location:       "localhost:5050",
 		requestTimeout: 10 * time.Second,
@@ -147,12 +151,12 @@ func (api *apiSt) NewGrpcTransport() GrpcTransport {
 }
 
 // HasGrpcTransport will return True for gRPC transport
-func (api *apiSt) hasGrpcTransport() bool {
+func (api *api) hasGrpcTransport() bool {
 	return api.grpc != nil
 }
 
 // NewHttpTransport sets the underlying transport of the Api as http
-func (api *apiSt) NewHttpTransport() HttpTransport {
+func (api *api) NewHttpTransport() HttpTransport {
 	api.http = &httpTransport{
 		location: "https://localhost:443",
 		verify:   false,
@@ -166,27 +170,76 @@ func (api *apiSt) NewHttpTransport() HttpTransport {
 	return api.http
 }
 
-func (api *apiSt) hasHttpTransport() bool {
+func (api *api) hasHttpTransport() bool {
 	return api.http != nil
 }
 
-func (api *apiSt) getWarnings() string {
+func (api *api) Warnings() string {
 	return api.warnings
 }
 
-func (api *apiSt) addWarnings(message string) {
+func (api *api) addWarnings(message string) {
 	fmt.Printf("[WARNING]: %s\n", message)
 	api.warnings = message
 }
 
-func (api *apiSt) deprecated(message string) {
+func (api *api) deprecated(message string) {
 	api.warnings = message
 	fmt.Printf("warning: %s\n", message)
 }
 
-func (api *apiSt) under_review(message string) {
+func (api *api) under_review(message string) {
 	api.warnings = message
 	fmt.Printf("warning: %s\n", message)
+}
+
+func (api *api) FromError(err error) (Error, bool) {
+	if rErr, ok := err.(Error); ok {
+		return rErr, true
+	}
+
+	rErr := NewError()
+	if err := rErr.FromJson(err.Error()); err == nil {
+		return rErr, true
+	}
+
+	return api.fromGrpcError(err)
+}
+
+func (api *api) setResponseErr(obj Error, code int32, message string) {
+	errors := []string{}
+	errors = append(errors, message)
+	obj.Msg().Code = &code
+	obj.Msg().Errors = errors
+}
+
+func (api *api) fromGrpcError(err error) (Error, bool) {
+	st, ok := status.FromError(err)
+	if ok {
+		rErr := NewError()
+		if err := rErr.FromJson(st.Message()); err == nil {
+			var code = int32(st.Code())
+			rErr.Msg().Code = &code
+			return rErr, true
+		}
+
+		api.setResponseErr(rErr, int32(st.Code()), st.Message())
+		return rErr, true
+	}
+
+	return nil, false
+}
+
+func (api *api) fromHttpError(statusCode int, body []byte) Error {
+	rErr := NewError()
+	bStr := string(body)
+	if err := rErr.FromJson(bStr); err == nil {
+		return rErr
+	}
+
+	api.setResponseErr(rErr, int32(statusCode), bStr)
+
+	return rErr
 }
 
 // HttpRequestDoer will return True for HTTP transport
@@ -331,21 +384,6 @@ func (obj *validation) validateHex(hex string) error {
 	return nil
 }
 
-func (obj *validation) validateOid(oid string) error {
-	segments := strings.Split(oid, ".")
-	if len(segments) < 2 {
-		return fmt.Errorf(fmt.Sprintf("Invalid oid value %s", oid))
-	}
-
-	for _, segment := range segments {
-		number, err := strconv.Atoi(segment)
-		if err != nil || 0 > number || number > 4294967295 {
-			return fmt.Errorf(fmt.Sprintf("Invalid oid value %s", oid))
-		}
-	}
-	return nil
-}
-
 func (obj *validation) validateSlice(valSlice []string, sliceType string) error {
 	indices := []string{}
 	var err error
@@ -359,8 +397,6 @@ func (obj *validation) validateSlice(valSlice []string, sliceType string) error 
 			err = obj.validateIpv6(val)
 		} else if sliceType == "hex" {
 			err = obj.validateHex(val)
-		} else if sliceType == "oid" {
-			err = obj.validateOid(val)
 		} else {
 			return fmt.Errorf(fmt.Sprintf("Invalid slice type received <%s>", sliceType))
 		}
@@ -391,10 +427,6 @@ func (obj *validation) validateIpv6Slice(ip []string) error {
 
 func (obj *validation) validateHexSlice(hex []string) error {
 	return obj.validateSlice(hex, "hex")
-}
-
-func (obj *validation) validateOidSlice(oid []string) error {
-	return obj.validateSlice(oid, "oid")
 }
 
 // TODO: restore behavior

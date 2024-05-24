@@ -474,17 +474,6 @@ class OpenApiValidator(object):
             return False
         return all([True if int(bin) == 0 or int(bin) == 1 else False for bin in value])
 
-    def validate_oid(self, value):
-        segments = value.split(".")
-        if len(segments) < 2:
-            return False
-        for segment in segments:
-            if not segment.isnumeric():
-                return False
-            if not (0 <= int(segment) <= 4294967295):
-                return False
-        return True
-
     def types_validation(
         self,
         value,
@@ -688,13 +677,10 @@ class OpenApiObject(OpenApiBase, OpenApiValidator):
                 "_DEFAULTS" in dir(self._properties[name])
                 and "choice" in self._properties[name]._DEFAULTS
             ):
-                choice_str = self._properties[name]._DEFAULTS["choice"]
-
-                if choice_str in self._properties[name]._TYPES:
-                    getattr(
-                        self._properties[name],
-                        self._properties[name]._DEFAULTS["choice"],
-                    )
+                getattr(
+                    self._properties[name],
+                    self._properties[name]._DEFAULTS["choice"],
+                )
         else:
             if default_value is None and name in self._DEFAULTS:
                 self._set_choice(name)

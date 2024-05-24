@@ -19,63 +19,10 @@ import (
 	l1s_pb "github.com/open-traffic-generator/openl1s/gol1s/l1s_pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
-
-// function related to error handling
-func FromError(err error) (Error, bool) {
-	if rErr, ok := err.(Error); ok {
-		return rErr, true
-	}
-
-	rErr := NewError()
-	if err := rErr.Unmarshal().FromJson(err.Error()); err == nil {
-		return rErr, true
-	}
-
-	return fromGrpcError(err)
-}
-
-func setResponseErr(obj Error, code int32, message string) {
-	errors := []string{}
-	errors = append(errors, message)
-	obj.msg().Code = &code
-	obj.msg().Errors = errors
-}
-
-// parses and return errors for grpc response
-func fromGrpcError(err error) (Error, bool) {
-	st, ok := status.FromError(err)
-	if ok {
-		rErr := NewError()
-		if err := rErr.Unmarshal().FromJson(st.Message()); err == nil {
-			var code = int32(st.Code())
-			rErr.msg().Code = &code
-			return rErr, true
-		}
-
-		setResponseErr(rErr, int32(st.Code()), st.Message())
-		return rErr, true
-	}
-
-	return nil, false
-}
-
-// parses and return errors for http responses
-func fromHttpError(statusCode int, body []byte) Error {
-	rErr := NewError()
-	bStr := string(body)
-	if err := rErr.Unmarshal().FromJson(bStr); err == nil {
-		return rErr
-	}
-
-	setResponseErr(rErr, int32(statusCode), bStr)
-
-	return rErr
-}
 
 type versionMeta struct {
 	checkVersion  bool
@@ -84,7 +31,7 @@ type versionMeta struct {
 	checkError    error
 }
 type gol1SApi struct {
-	apiSt
+	api
 	grpcClient  l1s_pb.OpenapiClient
 	httpClient  httpClient
 	versionMeta *versionMeta
@@ -140,7 +87,7 @@ func (api *gol1SApi) Close() error {
 }
 
 // NewApi returns a new instance of the top level interface hierarchy
-func NewApi() Api {
+func NewApi() Gol1SApi {
 	api := gol1SApi{}
 	api.versionMeta = &versionMeta{checkVersion: false}
 	return &api
@@ -203,8 +150,17 @@ func (api *gol1SApi) httpSendRecv(urlPath string, jsonBody string, method string
 }
 
 // Gol1SApi oTG L1S(Layer1Switch) Model
-type Api interface {
-	api
+type Gol1SApi interface {
+	Api
+	// Config is a container for L1S configuration.
+	// NewConfig returns a new instance of Config.
+	NewConfig() Config
+	// SetConfigResponse is description is TBD
+	// NewSetConfigResponse returns a new instance of SetConfigResponse.
+	NewSetConfigResponse() SetConfigResponse
+	// GetVersionResponse is description is TBD
+	// NewGetVersionResponse returns a new instance of GetVersionResponse.
+	NewGetVersionResponse() GetVersionResponse
 	// SetConfig create configuration for L1S
 	SetConfig(config Config) (*string, error)
 	// GetVersion description is TBD
@@ -219,6 +175,18 @@ type Api interface {
 	// CheckVersionCompatibility compares API spec version for local client and remote server,
 	// and returns an error if they are not compatible according to Semantic Versioning 2.0.0
 	CheckVersionCompatibility() error
+}
+
+func (api *gol1SApi) NewConfig() Config {
+	return NewConfig()
+}
+
+func (api *gol1SApi) NewSetConfigResponse() SetConfigResponse {
+	return NewSetConfigResponse()
+}
+
+func (api *gol1SApi) NewGetVersionResponse() GetVersionResponse {
+	return NewGetVersionResponse()
 }
 
 func (api *gol1SApi) GetLocalVersion() Version {
@@ -301,7 +269,7 @@ func (api *gol1SApi) CheckVersionCompatibility() error {
 
 func (api *gol1SApi) SetConfig(config Config) (*string, error) {
 
-	if err := config.validate(); err != nil {
+	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
@@ -314,12 +282,12 @@ func (api *gol1SApi) SetConfig(config Config) (*string, error) {
 	if err := api.grpcConnect(); err != nil {
 		return nil, err
 	}
-	request := l1s_pb.SetConfigRequest{Config: config.msg()}
+	request := l1s_pb.SetConfigRequest{Config: config.Msg()}
 	ctx, cancelFunc := context.WithTimeout(context.Background(), api.grpc.requestTimeout)
 	defer cancelFunc()
 	resp, err := api.grpcClient.SetConfig(ctx, &request)
 	if err != nil {
-		if er, ok := fromGrpcError(err); ok {
+		if er, ok := api.fromGrpcError(err); ok {
 			return nil, er
 		}
 		return nil, err
@@ -344,21 +312,21 @@ func (api *gol1SApi) GetVersion() (Version, error) {
 	defer cancelFunc()
 	resp, err := api.grpcClient.GetVersion(ctx, &request)
 	if err != nil {
-		if er, ok := fromGrpcError(err); ok {
+		if er, ok := api.fromGrpcError(err); ok {
 			return nil, er
 		}
 		return nil, err
 	}
 	ret := NewVersion()
 	if resp.GetVersion() != nil {
-		return ret.setMsg(resp.GetVersion()), nil
+		return ret.SetMsg(resp.GetVersion()), nil
 	}
 
 	return ret, nil
 }
 
 func (api *gol1SApi) httpSetConfig(config Config) (*string, error) {
-	configJson, err := config.Marshal().ToJson()
+	configJson, err := config.ToJson()
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +344,7 @@ func (api *gol1SApi) httpSetConfig(config Config) (*string, error) {
 		bodyString := string(bodyBytes)
 		return &bodyString, nil
 	} else {
-		return nil, fromHttpError(resp.StatusCode, bodyBytes)
+		return nil, api.fromHttpError(resp.StatusCode, bodyBytes)
 	}
 }
 
@@ -391,23 +359,21 @@ func (api *gol1SApi) httpGetVersion() (Version, error) {
 		return nil, err
 	}
 	if resp.StatusCode == 200 {
-		obj := NewGetVersionResponse().Version()
-		if err := obj.Unmarshal().FromJson(string(bodyBytes)); err != nil {
+		obj := api.NewGetVersionResponse().Version()
+		if err := obj.FromJson(string(bodyBytes)); err != nil {
 			return nil, err
 		}
 		return obj, nil
 	} else {
-		return nil, fromHttpError(resp.StatusCode, bodyBytes)
+		return nil, api.fromHttpError(resp.StatusCode, bodyBytes)
 	}
 }
 
 // ***** Config *****
 type config struct {
 	validation
-	obj          *l1s_pb.Config
-	marshaller   marshalConfig
-	unMarshaller unMarshalConfig
-	linksHolder  ConfigLinkIter
+	obj         *l1s_pb.Config
+	linksHolder ConfigLinkIter
 }
 
 func NewConfig() Config {
@@ -416,70 +382,26 @@ func NewConfig() Config {
 	return &obj
 }
 
-func (obj *config) msg() *l1s_pb.Config {
+func (obj *config) Msg() *l1s_pb.Config {
 	return obj.obj
 }
 
-func (obj *config) setMsg(msg *l1s_pb.Config) Config {
+func (obj *config) SetMsg(msg *l1s_pb.Config) Config {
 	obj.setNil()
 	proto.Merge(obj.obj, msg)
 	return obj
 }
 
-type marshalconfig struct {
-	obj *config
-}
-
-type marshalConfig interface {
-	// ToProto marshals Config to protobuf object *l1s_pb.Config
-	ToProto() (*l1s_pb.Config, error)
-	// ToPbText marshals Config to protobuf text
-	ToPbText() (string, error)
-	// ToYaml marshals Config to YAML text
-	ToYaml() (string, error)
-	// ToJson marshals Config to JSON text
-	ToJson() (string, error)
-}
-
-type unMarshalconfig struct {
-	obj *config
-}
-
-type unMarshalConfig interface {
-	// FromProto unmarshals Config from protobuf object *l1s_pb.Config
-	FromProto(msg *l1s_pb.Config) (Config, error)
-	// FromPbText unmarshals Config from protobuf text
-	FromPbText(value string) error
-	// FromYaml unmarshals Config from YAML text
-	FromYaml(value string) error
-	// FromJson unmarshals Config from JSON text
-	FromJson(value string) error
-}
-
-func (obj *config) Marshal() marshalConfig {
-	if obj.marshaller == nil {
-		obj.marshaller = &marshalconfig{obj: obj}
-	}
-	return obj.marshaller
-}
-
-func (obj *config) Unmarshal() unMarshalConfig {
-	if obj.unMarshaller == nil {
-		obj.unMarshaller = &unMarshalconfig{obj: obj}
-	}
-	return obj.unMarshaller
-}
-
-func (m *marshalconfig) ToProto() (*l1s_pb.Config, error) {
-	err := m.obj.validateToAndFrom()
+func (obj *config) ToProto() (*l1s_pb.Config, error) {
+	err := obj.validateToAndFrom()
 	if err != nil {
 		return nil, err
 	}
-	return m.obj.msg(), nil
+	return obj.Msg(), nil
 }
 
-func (m *unMarshalconfig) FromProto(msg *l1s_pb.Config) (Config, error) {
-	newObj := m.obj.setMsg(msg)
+func (obj *config) FromProto(msg *l1s_pb.Config) (Config, error) {
+	newObj := obj.SetMsg(msg)
 	err := newObj.validateToAndFrom()
 	if err != nil {
 		return nil, err
@@ -487,33 +409,33 @@ func (m *unMarshalconfig) FromProto(msg *l1s_pb.Config) (Config, error) {
 	return newObj, nil
 }
 
-func (m *marshalconfig) ToPbText() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *config) ToPbText() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
-	protoMarshal, err := proto.Marshal(m.obj.msg())
+	protoMarshal, err := proto.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
 	return string(protoMarshal), nil
 }
 
-func (m *unMarshalconfig) FromPbText(value string) error {
-	retObj := proto.Unmarshal([]byte(value), m.obj.msg())
+func (obj *config) FromPbText(value string) error {
+	retObj := proto.Unmarshal([]byte(value), obj.Msg())
 	if retObj != nil {
 		return retObj
 	}
-	m.obj.setNil()
-	vErr := m.obj.validateToAndFrom()
+	obj.setNil()
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return vErr
 	}
 	return retObj
 }
 
-func (m *marshalconfig) ToYaml() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *config) ToYaml() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
@@ -522,7 +444,7 @@ func (m *marshalconfig) ToYaml() (string, error) {
 		AllowPartial:    true,
 		EmitUnpopulated: false,
 	}
-	data, err := opts.Marshal(m.obj.msg())
+	data, err := opts.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
@@ -533,7 +455,7 @@ func (m *marshalconfig) ToYaml() (string, error) {
 	return string(data), nil
 }
 
-func (m *unMarshalconfig) FromYaml(value string) error {
+func (obj *config) FromYaml(value string) error {
 	if value == "" {
 		value = "{}"
 	}
@@ -545,21 +467,21 @@ func (m *unMarshalconfig) FromYaml(value string) error {
 		AllowPartial:   true,
 		DiscardUnknown: false,
 	}
-	uError := opts.Unmarshal([]byte(data), m.obj.msg())
+	uError := opts.Unmarshal([]byte(data), obj.Msg())
 	if uError != nil {
 		return fmt.Errorf("unmarshal error %s", strings.Replace(
 			uError.Error(), "\u00a0", " ", -1)[7:])
 	}
-	m.obj.setNil()
-	vErr := m.obj.validateToAndFrom()
+	obj.setNil()
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return vErr
 	}
 	return nil
 }
 
-func (m *marshalconfig) ToJson() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *config) ToJson() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
@@ -569,14 +491,14 @@ func (m *marshalconfig) ToJson() (string, error) {
 		EmitUnpopulated: false,
 		Indent:          "  ",
 	}
-	data, err := opts.Marshal(m.obj.msg())
+	data, err := opts.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
 	return string(data), nil
 }
 
-func (m *unMarshalconfig) FromJson(value string) error {
+func (obj *config) FromJson(value string) error {
 	opts := protojson.UnmarshalOptions{
 		AllowPartial:   true,
 		DiscardUnknown: false,
@@ -584,13 +506,13 @@ func (m *unMarshalconfig) FromJson(value string) error {
 	if value == "" {
 		value = "{}"
 	}
-	uError := opts.Unmarshal([]byte(value), m.obj.msg())
+	uError := opts.Unmarshal([]byte(value), obj.Msg())
 	if uError != nil {
 		return fmt.Errorf("unmarshal error %s", strings.Replace(
 			uError.Error(), "\u00a0", " ", -1)[7:])
 	}
-	m.obj.setNil()
-	err := m.obj.validateToAndFrom()
+	obj.setNil()
+	err := obj.validateToAndFrom()
 	if err != nil {
 		return err
 	}
@@ -603,14 +525,14 @@ func (obj *config) validateToAndFrom() error {
 	return obj.validationResult()
 }
 
-func (obj *config) validate() error {
+func (obj *config) Validate() error {
 	// emptyVars()
 	obj.validateObj(&obj.validation, false)
 	return obj.validationResult()
 }
 
 func (obj *config) String() string {
-	str, err := obj.Marshal().ToYaml()
+	str, err := obj.ToYaml()
 	if err != nil {
 		return err.Error()
 	}
@@ -618,16 +540,16 @@ func (obj *config) String() string {
 }
 
 func (obj *config) Clone() (Config, error) {
-	vErr := obj.validate()
+	vErr := obj.Validate()
 	if vErr != nil {
 		return nil, vErr
 	}
 	newObj := NewConfig()
-	data, err := proto.Marshal(obj.msg())
+	data, err := proto.Marshal(obj.Msg())
 	if err != nil {
 		return nil, err
 	}
-	pbErr := proto.Unmarshal(data, newObj.msg())
+	pbErr := proto.Unmarshal(data, newObj.Msg())
 	if pbErr != nil {
 		return nil, pbErr
 	}
@@ -644,18 +566,30 @@ func (obj *config) setNil() {
 // Config is a container for L1S configuration.
 type Config interface {
 	Validation
-	// msg marshals Config to protobuf object *l1s_pb.Config
+	// Msg marshals Config to protobuf object *l1s_pb.Config
 	// and doesn't set defaults
-	msg() *l1s_pb.Config
-	// setMsg unmarshals Config from protobuf object *l1s_pb.Config
+	Msg() *l1s_pb.Config
+	// SetMsg unmarshals Config from protobuf object *l1s_pb.Config
 	// and doesn't set defaults
-	setMsg(*l1s_pb.Config) Config
-	// provides marshal interface
-	Marshal() marshalConfig
-	// provides unmarshal interface
-	Unmarshal() unMarshalConfig
-	// validate validates Config
-	validate() error
+	SetMsg(*l1s_pb.Config) Config
+	// ToProto marshals Config to protobuf object *l1s_pb.Config
+	ToProto() (*l1s_pb.Config, error)
+	// ToPbText marshals Config to protobuf text
+	ToPbText() (string, error)
+	// ToYaml marshals Config to YAML text
+	ToYaml() (string, error)
+	// ToJson marshals Config to JSON text
+	ToJson() (string, error)
+	// FromProto unmarshals Config from protobuf object *l1s_pb.Config
+	FromProto(msg *l1s_pb.Config) (Config, error)
+	// FromPbText unmarshals Config from protobuf text
+	FromPbText(value string) error
+	// FromYaml unmarshals Config from YAML text
+	FromYaml(value string) error
+	// FromJson unmarshals Config from JSON text
+	FromJson(value string) error
+	// Validate validates Config
+	Validate() error
 	// A stringer function
 	String() string
 	// Clones the object
@@ -725,7 +659,7 @@ func (obj *configLinkIter) Add() Link {
 
 func (obj *configLinkIter) Append(items ...Link) ConfigLinkIter {
 	for _, item := range items {
-		newObj := item.msg()
+		newObj := item.Msg()
 		*obj.fieldPtr = append(*obj.fieldPtr, newObj)
 		obj.linkSlice = append(obj.linkSlice, item)
 	}
@@ -733,7 +667,7 @@ func (obj *configLinkIter) Append(items ...Link) ConfigLinkIter {
 }
 
 func (obj *configLinkIter) Set(index int, newObj Link) ConfigLinkIter {
-	(*obj.fieldPtr)[index] = newObj.msg()
+	(*obj.fieldPtr)[index] = newObj.Msg()
 	obj.linkSlice[index] = newObj
 	return obj
 }
@@ -783,9 +717,7 @@ func (obj *config) setDefault() {
 // ***** SetConfigResponse *****
 type setConfigResponse struct {
 	validation
-	obj          *l1s_pb.SetConfigResponse
-	marshaller   marshalSetConfigResponse
-	unMarshaller unMarshalSetConfigResponse
+	obj *l1s_pb.SetConfigResponse
 }
 
 func NewSetConfigResponse() SetConfigResponse {
@@ -794,70 +726,26 @@ func NewSetConfigResponse() SetConfigResponse {
 	return &obj
 }
 
-func (obj *setConfigResponse) msg() *l1s_pb.SetConfigResponse {
+func (obj *setConfigResponse) Msg() *l1s_pb.SetConfigResponse {
 	return obj.obj
 }
 
-func (obj *setConfigResponse) setMsg(msg *l1s_pb.SetConfigResponse) SetConfigResponse {
+func (obj *setConfigResponse) SetMsg(msg *l1s_pb.SetConfigResponse) SetConfigResponse {
 
 	proto.Merge(obj.obj, msg)
 	return obj
 }
 
-type marshalsetConfigResponse struct {
-	obj *setConfigResponse
-}
-
-type marshalSetConfigResponse interface {
-	// ToProto marshals SetConfigResponse to protobuf object *l1s_pb.SetConfigResponse
-	ToProto() (*l1s_pb.SetConfigResponse, error)
-	// ToPbText marshals SetConfigResponse to protobuf text
-	ToPbText() (string, error)
-	// ToYaml marshals SetConfigResponse to YAML text
-	ToYaml() (string, error)
-	// ToJson marshals SetConfigResponse to JSON text
-	ToJson() (string, error)
-}
-
-type unMarshalsetConfigResponse struct {
-	obj *setConfigResponse
-}
-
-type unMarshalSetConfigResponse interface {
-	// FromProto unmarshals SetConfigResponse from protobuf object *l1s_pb.SetConfigResponse
-	FromProto(msg *l1s_pb.SetConfigResponse) (SetConfigResponse, error)
-	// FromPbText unmarshals SetConfigResponse from protobuf text
-	FromPbText(value string) error
-	// FromYaml unmarshals SetConfigResponse from YAML text
-	FromYaml(value string) error
-	// FromJson unmarshals SetConfigResponse from JSON text
-	FromJson(value string) error
-}
-
-func (obj *setConfigResponse) Marshal() marshalSetConfigResponse {
-	if obj.marshaller == nil {
-		obj.marshaller = &marshalsetConfigResponse{obj: obj}
-	}
-	return obj.marshaller
-}
-
-func (obj *setConfigResponse) Unmarshal() unMarshalSetConfigResponse {
-	if obj.unMarshaller == nil {
-		obj.unMarshaller = &unMarshalsetConfigResponse{obj: obj}
-	}
-	return obj.unMarshaller
-}
-
-func (m *marshalsetConfigResponse) ToProto() (*l1s_pb.SetConfigResponse, error) {
-	err := m.obj.validateToAndFrom()
+func (obj *setConfigResponse) ToProto() (*l1s_pb.SetConfigResponse, error) {
+	err := obj.validateToAndFrom()
 	if err != nil {
 		return nil, err
 	}
-	return m.obj.msg(), nil
+	return obj.Msg(), nil
 }
 
-func (m *unMarshalsetConfigResponse) FromProto(msg *l1s_pb.SetConfigResponse) (SetConfigResponse, error) {
-	newObj := m.obj.setMsg(msg)
+func (obj *setConfigResponse) FromProto(msg *l1s_pb.SetConfigResponse) (SetConfigResponse, error) {
+	newObj := obj.SetMsg(msg)
 	err := newObj.validateToAndFrom()
 	if err != nil {
 		return nil, err
@@ -865,33 +753,33 @@ func (m *unMarshalsetConfigResponse) FromProto(msg *l1s_pb.SetConfigResponse) (S
 	return newObj, nil
 }
 
-func (m *marshalsetConfigResponse) ToPbText() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *setConfigResponse) ToPbText() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
-	protoMarshal, err := proto.Marshal(m.obj.msg())
+	protoMarshal, err := proto.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
 	return string(protoMarshal), nil
 }
 
-func (m *unMarshalsetConfigResponse) FromPbText(value string) error {
-	retObj := proto.Unmarshal([]byte(value), m.obj.msg())
+func (obj *setConfigResponse) FromPbText(value string) error {
+	retObj := proto.Unmarshal([]byte(value), obj.Msg())
 	if retObj != nil {
 		return retObj
 	}
 
-	vErr := m.obj.validateToAndFrom()
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return vErr
 	}
 	return retObj
 }
 
-func (m *marshalsetConfigResponse) ToYaml() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *setConfigResponse) ToYaml() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
@@ -900,7 +788,7 @@ func (m *marshalsetConfigResponse) ToYaml() (string, error) {
 		AllowPartial:    true,
 		EmitUnpopulated: false,
 	}
-	data, err := opts.Marshal(m.obj.msg())
+	data, err := opts.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
@@ -911,7 +799,7 @@ func (m *marshalsetConfigResponse) ToYaml() (string, error) {
 	return string(data), nil
 }
 
-func (m *unMarshalsetConfigResponse) FromYaml(value string) error {
+func (obj *setConfigResponse) FromYaml(value string) error {
 	if value == "" {
 		value = "{}"
 	}
@@ -923,21 +811,21 @@ func (m *unMarshalsetConfigResponse) FromYaml(value string) error {
 		AllowPartial:   true,
 		DiscardUnknown: false,
 	}
-	uError := opts.Unmarshal([]byte(data), m.obj.msg())
+	uError := opts.Unmarshal([]byte(data), obj.Msg())
 	if uError != nil {
 		return fmt.Errorf("unmarshal error %s", strings.Replace(
 			uError.Error(), "\u00a0", " ", -1)[7:])
 	}
 
-	vErr := m.obj.validateToAndFrom()
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return vErr
 	}
 	return nil
 }
 
-func (m *marshalsetConfigResponse) ToJson() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *setConfigResponse) ToJson() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
@@ -947,14 +835,14 @@ func (m *marshalsetConfigResponse) ToJson() (string, error) {
 		EmitUnpopulated: false,
 		Indent:          "  ",
 	}
-	data, err := opts.Marshal(m.obj.msg())
+	data, err := opts.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
 	return string(data), nil
 }
 
-func (m *unMarshalsetConfigResponse) FromJson(value string) error {
+func (obj *setConfigResponse) FromJson(value string) error {
 	opts := protojson.UnmarshalOptions{
 		AllowPartial:   true,
 		DiscardUnknown: false,
@@ -962,13 +850,13 @@ func (m *unMarshalsetConfigResponse) FromJson(value string) error {
 	if value == "" {
 		value = "{}"
 	}
-	uError := opts.Unmarshal([]byte(value), m.obj.msg())
+	uError := opts.Unmarshal([]byte(value), obj.Msg())
 	if uError != nil {
 		return fmt.Errorf("unmarshal error %s", strings.Replace(
 			uError.Error(), "\u00a0", " ", -1)[7:])
 	}
 
-	err := m.obj.validateToAndFrom()
+	err := obj.validateToAndFrom()
 	if err != nil {
 		return err
 	}
@@ -981,14 +869,14 @@ func (obj *setConfigResponse) validateToAndFrom() error {
 	return obj.validationResult()
 }
 
-func (obj *setConfigResponse) validate() error {
+func (obj *setConfigResponse) Validate() error {
 	// emptyVars()
 	obj.validateObj(&obj.validation, false)
 	return obj.validationResult()
 }
 
 func (obj *setConfigResponse) String() string {
-	str, err := obj.Marshal().ToYaml()
+	str, err := obj.ToYaml()
 	if err != nil {
 		return err.Error()
 	}
@@ -996,16 +884,16 @@ func (obj *setConfigResponse) String() string {
 }
 
 func (obj *setConfigResponse) Clone() (SetConfigResponse, error) {
-	vErr := obj.validate()
+	vErr := obj.Validate()
 	if vErr != nil {
 		return nil, vErr
 	}
 	newObj := NewSetConfigResponse()
-	data, err := proto.Marshal(obj.msg())
+	data, err := proto.Marshal(obj.Msg())
 	if err != nil {
 		return nil, err
 	}
-	pbErr := proto.Unmarshal(data, newObj.msg())
+	pbErr := proto.Unmarshal(data, newObj.Msg())
 	if pbErr != nil {
 		return nil, pbErr
 	}
@@ -1015,18 +903,30 @@ func (obj *setConfigResponse) Clone() (SetConfigResponse, error) {
 // SetConfigResponse is description is TBD
 type SetConfigResponse interface {
 	Validation
-	// msg marshals SetConfigResponse to protobuf object *l1s_pb.SetConfigResponse
+	// Msg marshals SetConfigResponse to protobuf object *l1s_pb.SetConfigResponse
 	// and doesn't set defaults
-	msg() *l1s_pb.SetConfigResponse
-	// setMsg unmarshals SetConfigResponse from protobuf object *l1s_pb.SetConfigResponse
+	Msg() *l1s_pb.SetConfigResponse
+	// SetMsg unmarshals SetConfigResponse from protobuf object *l1s_pb.SetConfigResponse
 	// and doesn't set defaults
-	setMsg(*l1s_pb.SetConfigResponse) SetConfigResponse
-	// provides marshal interface
-	Marshal() marshalSetConfigResponse
-	// provides unmarshal interface
-	Unmarshal() unMarshalSetConfigResponse
-	// validate validates SetConfigResponse
-	validate() error
+	SetMsg(*l1s_pb.SetConfigResponse) SetConfigResponse
+	// ToProto marshals SetConfigResponse to protobuf object *l1s_pb.SetConfigResponse
+	ToProto() (*l1s_pb.SetConfigResponse, error)
+	// ToPbText marshals SetConfigResponse to protobuf text
+	ToPbText() (string, error)
+	// ToYaml marshals SetConfigResponse to YAML text
+	ToYaml() (string, error)
+	// ToJson marshals SetConfigResponse to JSON text
+	ToJson() (string, error)
+	// FromProto unmarshals SetConfigResponse from protobuf object *l1s_pb.SetConfigResponse
+	FromProto(msg *l1s_pb.SetConfigResponse) (SetConfigResponse, error)
+	// FromPbText unmarshals SetConfigResponse from protobuf text
+	FromPbText(value string) error
+	// FromYaml unmarshals SetConfigResponse from YAML text
+	FromYaml(value string) error
+	// FromJson unmarshals SetConfigResponse from JSON text
+	FromJson(value string) error
+	// Validate validates SetConfigResponse
+	Validate() error
 	// A stringer function
 	String() string
 	// Clones the object
@@ -1076,8 +976,6 @@ func (obj *setConfigResponse) setDefault() {
 type getVersionResponse struct {
 	validation
 	obj           *l1s_pb.GetVersionResponse
-	marshaller    marshalGetVersionResponse
-	unMarshaller  unMarshalGetVersionResponse
 	versionHolder Version
 }
 
@@ -1087,70 +985,26 @@ func NewGetVersionResponse() GetVersionResponse {
 	return &obj
 }
 
-func (obj *getVersionResponse) msg() *l1s_pb.GetVersionResponse {
+func (obj *getVersionResponse) Msg() *l1s_pb.GetVersionResponse {
 	return obj.obj
 }
 
-func (obj *getVersionResponse) setMsg(msg *l1s_pb.GetVersionResponse) GetVersionResponse {
+func (obj *getVersionResponse) SetMsg(msg *l1s_pb.GetVersionResponse) GetVersionResponse {
 	obj.setNil()
 	proto.Merge(obj.obj, msg)
 	return obj
 }
 
-type marshalgetVersionResponse struct {
-	obj *getVersionResponse
-}
-
-type marshalGetVersionResponse interface {
-	// ToProto marshals GetVersionResponse to protobuf object *l1s_pb.GetVersionResponse
-	ToProto() (*l1s_pb.GetVersionResponse, error)
-	// ToPbText marshals GetVersionResponse to protobuf text
-	ToPbText() (string, error)
-	// ToYaml marshals GetVersionResponse to YAML text
-	ToYaml() (string, error)
-	// ToJson marshals GetVersionResponse to JSON text
-	ToJson() (string, error)
-}
-
-type unMarshalgetVersionResponse struct {
-	obj *getVersionResponse
-}
-
-type unMarshalGetVersionResponse interface {
-	// FromProto unmarshals GetVersionResponse from protobuf object *l1s_pb.GetVersionResponse
-	FromProto(msg *l1s_pb.GetVersionResponse) (GetVersionResponse, error)
-	// FromPbText unmarshals GetVersionResponse from protobuf text
-	FromPbText(value string) error
-	// FromYaml unmarshals GetVersionResponse from YAML text
-	FromYaml(value string) error
-	// FromJson unmarshals GetVersionResponse from JSON text
-	FromJson(value string) error
-}
-
-func (obj *getVersionResponse) Marshal() marshalGetVersionResponse {
-	if obj.marshaller == nil {
-		obj.marshaller = &marshalgetVersionResponse{obj: obj}
-	}
-	return obj.marshaller
-}
-
-func (obj *getVersionResponse) Unmarshal() unMarshalGetVersionResponse {
-	if obj.unMarshaller == nil {
-		obj.unMarshaller = &unMarshalgetVersionResponse{obj: obj}
-	}
-	return obj.unMarshaller
-}
-
-func (m *marshalgetVersionResponse) ToProto() (*l1s_pb.GetVersionResponse, error) {
-	err := m.obj.validateToAndFrom()
+func (obj *getVersionResponse) ToProto() (*l1s_pb.GetVersionResponse, error) {
+	err := obj.validateToAndFrom()
 	if err != nil {
 		return nil, err
 	}
-	return m.obj.msg(), nil
+	return obj.Msg(), nil
 }
 
-func (m *unMarshalgetVersionResponse) FromProto(msg *l1s_pb.GetVersionResponse) (GetVersionResponse, error) {
-	newObj := m.obj.setMsg(msg)
+func (obj *getVersionResponse) FromProto(msg *l1s_pb.GetVersionResponse) (GetVersionResponse, error) {
+	newObj := obj.SetMsg(msg)
 	err := newObj.validateToAndFrom()
 	if err != nil {
 		return nil, err
@@ -1158,33 +1012,33 @@ func (m *unMarshalgetVersionResponse) FromProto(msg *l1s_pb.GetVersionResponse) 
 	return newObj, nil
 }
 
-func (m *marshalgetVersionResponse) ToPbText() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *getVersionResponse) ToPbText() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
-	protoMarshal, err := proto.Marshal(m.obj.msg())
+	protoMarshal, err := proto.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
 	return string(protoMarshal), nil
 }
 
-func (m *unMarshalgetVersionResponse) FromPbText(value string) error {
-	retObj := proto.Unmarshal([]byte(value), m.obj.msg())
+func (obj *getVersionResponse) FromPbText(value string) error {
+	retObj := proto.Unmarshal([]byte(value), obj.Msg())
 	if retObj != nil {
 		return retObj
 	}
-	m.obj.setNil()
-	vErr := m.obj.validateToAndFrom()
+	obj.setNil()
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return vErr
 	}
 	return retObj
 }
 
-func (m *marshalgetVersionResponse) ToYaml() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *getVersionResponse) ToYaml() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
@@ -1193,7 +1047,7 @@ func (m *marshalgetVersionResponse) ToYaml() (string, error) {
 		AllowPartial:    true,
 		EmitUnpopulated: false,
 	}
-	data, err := opts.Marshal(m.obj.msg())
+	data, err := opts.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
@@ -1204,7 +1058,7 @@ func (m *marshalgetVersionResponse) ToYaml() (string, error) {
 	return string(data), nil
 }
 
-func (m *unMarshalgetVersionResponse) FromYaml(value string) error {
+func (obj *getVersionResponse) FromYaml(value string) error {
 	if value == "" {
 		value = "{}"
 	}
@@ -1216,21 +1070,21 @@ func (m *unMarshalgetVersionResponse) FromYaml(value string) error {
 		AllowPartial:   true,
 		DiscardUnknown: false,
 	}
-	uError := opts.Unmarshal([]byte(data), m.obj.msg())
+	uError := opts.Unmarshal([]byte(data), obj.Msg())
 	if uError != nil {
 		return fmt.Errorf("unmarshal error %s", strings.Replace(
 			uError.Error(), "\u00a0", " ", -1)[7:])
 	}
-	m.obj.setNil()
-	vErr := m.obj.validateToAndFrom()
+	obj.setNil()
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return vErr
 	}
 	return nil
 }
 
-func (m *marshalgetVersionResponse) ToJson() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *getVersionResponse) ToJson() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
@@ -1240,14 +1094,14 @@ func (m *marshalgetVersionResponse) ToJson() (string, error) {
 		EmitUnpopulated: false,
 		Indent:          "  ",
 	}
-	data, err := opts.Marshal(m.obj.msg())
+	data, err := opts.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
 	return string(data), nil
 }
 
-func (m *unMarshalgetVersionResponse) FromJson(value string) error {
+func (obj *getVersionResponse) FromJson(value string) error {
 	opts := protojson.UnmarshalOptions{
 		AllowPartial:   true,
 		DiscardUnknown: false,
@@ -1255,13 +1109,13 @@ func (m *unMarshalgetVersionResponse) FromJson(value string) error {
 	if value == "" {
 		value = "{}"
 	}
-	uError := opts.Unmarshal([]byte(value), m.obj.msg())
+	uError := opts.Unmarshal([]byte(value), obj.Msg())
 	if uError != nil {
 		return fmt.Errorf("unmarshal error %s", strings.Replace(
 			uError.Error(), "\u00a0", " ", -1)[7:])
 	}
-	m.obj.setNil()
-	err := m.obj.validateToAndFrom()
+	obj.setNil()
+	err := obj.validateToAndFrom()
 	if err != nil {
 		return err
 	}
@@ -1274,14 +1128,14 @@ func (obj *getVersionResponse) validateToAndFrom() error {
 	return obj.validationResult()
 }
 
-func (obj *getVersionResponse) validate() error {
+func (obj *getVersionResponse) Validate() error {
 	// emptyVars()
 	obj.validateObj(&obj.validation, false)
 	return obj.validationResult()
 }
 
 func (obj *getVersionResponse) String() string {
-	str, err := obj.Marshal().ToYaml()
+	str, err := obj.ToYaml()
 	if err != nil {
 		return err.Error()
 	}
@@ -1289,16 +1143,16 @@ func (obj *getVersionResponse) String() string {
 }
 
 func (obj *getVersionResponse) Clone() (GetVersionResponse, error) {
-	vErr := obj.validate()
+	vErr := obj.Validate()
 	if vErr != nil {
 		return nil, vErr
 	}
 	newObj := NewGetVersionResponse()
-	data, err := proto.Marshal(obj.msg())
+	data, err := proto.Marshal(obj.Msg())
 	if err != nil {
 		return nil, err
 	}
-	pbErr := proto.Unmarshal(data, newObj.msg())
+	pbErr := proto.Unmarshal(data, newObj.Msg())
 	if pbErr != nil {
 		return nil, pbErr
 	}
@@ -1315,18 +1169,30 @@ func (obj *getVersionResponse) setNil() {
 // GetVersionResponse is description is TBD
 type GetVersionResponse interface {
 	Validation
-	// msg marshals GetVersionResponse to protobuf object *l1s_pb.GetVersionResponse
+	// Msg marshals GetVersionResponse to protobuf object *l1s_pb.GetVersionResponse
 	// and doesn't set defaults
-	msg() *l1s_pb.GetVersionResponse
-	// setMsg unmarshals GetVersionResponse from protobuf object *l1s_pb.GetVersionResponse
+	Msg() *l1s_pb.GetVersionResponse
+	// SetMsg unmarshals GetVersionResponse from protobuf object *l1s_pb.GetVersionResponse
 	// and doesn't set defaults
-	setMsg(*l1s_pb.GetVersionResponse) GetVersionResponse
-	// provides marshal interface
-	Marshal() marshalGetVersionResponse
-	// provides unmarshal interface
-	Unmarshal() unMarshalGetVersionResponse
-	// validate validates GetVersionResponse
-	validate() error
+	SetMsg(*l1s_pb.GetVersionResponse) GetVersionResponse
+	// ToProto marshals GetVersionResponse to protobuf object *l1s_pb.GetVersionResponse
+	ToProto() (*l1s_pb.GetVersionResponse, error)
+	// ToPbText marshals GetVersionResponse to protobuf text
+	ToPbText() (string, error)
+	// ToYaml marshals GetVersionResponse to YAML text
+	ToYaml() (string, error)
+	// ToJson marshals GetVersionResponse to JSON text
+	ToJson() (string, error)
+	// FromProto unmarshals GetVersionResponse from protobuf object *l1s_pb.GetVersionResponse
+	FromProto(msg *l1s_pb.GetVersionResponse) (GetVersionResponse, error)
+	// FromPbText unmarshals GetVersionResponse from protobuf text
+	FromPbText(value string) error
+	// FromYaml unmarshals GetVersionResponse from YAML text
+	FromYaml(value string) error
+	// FromJson unmarshals GetVersionResponse from JSON text
+	FromJson(value string) error
+	// Validate validates GetVersionResponse
+	Validate() error
 	// A stringer function
 	String() string
 	// Clones the object
@@ -1349,7 +1215,7 @@ type GetVersionResponse interface {
 // Version returns a Version
 func (obj *getVersionResponse) Version() Version {
 	if obj.obj.Version == nil {
-		obj.obj.Version = NewVersion().msg()
+		obj.obj.Version = NewVersion().Msg()
 	}
 	if obj.versionHolder == nil {
 		obj.versionHolder = &version{obj: obj.obj.Version}
@@ -1368,7 +1234,7 @@ func (obj *getVersionResponse) HasVersion() bool {
 func (obj *getVersionResponse) SetVersion(value Version) GetVersionResponse {
 
 	obj.versionHolder = nil
-	obj.obj.Version = value.msg()
+	obj.obj.Version = value.Msg()
 
 	return obj
 }
@@ -1392,9 +1258,7 @@ func (obj *getVersionResponse) setDefault() {
 // ***** Link *****
 type link struct {
 	validation
-	obj          *l1s_pb.Link
-	marshaller   marshalLink
-	unMarshaller unMarshalLink
+	obj *l1s_pb.Link
 }
 
 func NewLink() Link {
@@ -1403,70 +1267,26 @@ func NewLink() Link {
 	return &obj
 }
 
-func (obj *link) msg() *l1s_pb.Link {
+func (obj *link) Msg() *l1s_pb.Link {
 	return obj.obj
 }
 
-func (obj *link) setMsg(msg *l1s_pb.Link) Link {
+func (obj *link) SetMsg(msg *l1s_pb.Link) Link {
 
 	proto.Merge(obj.obj, msg)
 	return obj
 }
 
-type marshallink struct {
-	obj *link
-}
-
-type marshalLink interface {
-	// ToProto marshals Link to protobuf object *l1s_pb.Link
-	ToProto() (*l1s_pb.Link, error)
-	// ToPbText marshals Link to protobuf text
-	ToPbText() (string, error)
-	// ToYaml marshals Link to YAML text
-	ToYaml() (string, error)
-	// ToJson marshals Link to JSON text
-	ToJson() (string, error)
-}
-
-type unMarshallink struct {
-	obj *link
-}
-
-type unMarshalLink interface {
-	// FromProto unmarshals Link from protobuf object *l1s_pb.Link
-	FromProto(msg *l1s_pb.Link) (Link, error)
-	// FromPbText unmarshals Link from protobuf text
-	FromPbText(value string) error
-	// FromYaml unmarshals Link from YAML text
-	FromYaml(value string) error
-	// FromJson unmarshals Link from JSON text
-	FromJson(value string) error
-}
-
-func (obj *link) Marshal() marshalLink {
-	if obj.marshaller == nil {
-		obj.marshaller = &marshallink{obj: obj}
-	}
-	return obj.marshaller
-}
-
-func (obj *link) Unmarshal() unMarshalLink {
-	if obj.unMarshaller == nil {
-		obj.unMarshaller = &unMarshallink{obj: obj}
-	}
-	return obj.unMarshaller
-}
-
-func (m *marshallink) ToProto() (*l1s_pb.Link, error) {
-	err := m.obj.validateToAndFrom()
+func (obj *link) ToProto() (*l1s_pb.Link, error) {
+	err := obj.validateToAndFrom()
 	if err != nil {
 		return nil, err
 	}
-	return m.obj.msg(), nil
+	return obj.Msg(), nil
 }
 
-func (m *unMarshallink) FromProto(msg *l1s_pb.Link) (Link, error) {
-	newObj := m.obj.setMsg(msg)
+func (obj *link) FromProto(msg *l1s_pb.Link) (Link, error) {
+	newObj := obj.SetMsg(msg)
 	err := newObj.validateToAndFrom()
 	if err != nil {
 		return nil, err
@@ -1474,33 +1294,33 @@ func (m *unMarshallink) FromProto(msg *l1s_pb.Link) (Link, error) {
 	return newObj, nil
 }
 
-func (m *marshallink) ToPbText() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *link) ToPbText() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
-	protoMarshal, err := proto.Marshal(m.obj.msg())
+	protoMarshal, err := proto.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
 	return string(protoMarshal), nil
 }
 
-func (m *unMarshallink) FromPbText(value string) error {
-	retObj := proto.Unmarshal([]byte(value), m.obj.msg())
+func (obj *link) FromPbText(value string) error {
+	retObj := proto.Unmarshal([]byte(value), obj.Msg())
 	if retObj != nil {
 		return retObj
 	}
 
-	vErr := m.obj.validateToAndFrom()
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return vErr
 	}
 	return retObj
 }
 
-func (m *marshallink) ToYaml() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *link) ToYaml() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
@@ -1509,7 +1329,7 @@ func (m *marshallink) ToYaml() (string, error) {
 		AllowPartial:    true,
 		EmitUnpopulated: false,
 	}
-	data, err := opts.Marshal(m.obj.msg())
+	data, err := opts.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
@@ -1520,7 +1340,7 @@ func (m *marshallink) ToYaml() (string, error) {
 	return string(data), nil
 }
 
-func (m *unMarshallink) FromYaml(value string) error {
+func (obj *link) FromYaml(value string) error {
 	if value == "" {
 		value = "{}"
 	}
@@ -1532,21 +1352,21 @@ func (m *unMarshallink) FromYaml(value string) error {
 		AllowPartial:   true,
 		DiscardUnknown: false,
 	}
-	uError := opts.Unmarshal([]byte(data), m.obj.msg())
+	uError := opts.Unmarshal([]byte(data), obj.Msg())
 	if uError != nil {
 		return fmt.Errorf("unmarshal error %s", strings.Replace(
 			uError.Error(), "\u00a0", " ", -1)[7:])
 	}
 
-	vErr := m.obj.validateToAndFrom()
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return vErr
 	}
 	return nil
 }
 
-func (m *marshallink) ToJson() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *link) ToJson() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
@@ -1556,14 +1376,14 @@ func (m *marshallink) ToJson() (string, error) {
 		EmitUnpopulated: false,
 		Indent:          "  ",
 	}
-	data, err := opts.Marshal(m.obj.msg())
+	data, err := opts.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
 	return string(data), nil
 }
 
-func (m *unMarshallink) FromJson(value string) error {
+func (obj *link) FromJson(value string) error {
 	opts := protojson.UnmarshalOptions{
 		AllowPartial:   true,
 		DiscardUnknown: false,
@@ -1571,13 +1391,13 @@ func (m *unMarshallink) FromJson(value string) error {
 	if value == "" {
 		value = "{}"
 	}
-	uError := opts.Unmarshal([]byte(value), m.obj.msg())
+	uError := opts.Unmarshal([]byte(value), obj.Msg())
 	if uError != nil {
 		return fmt.Errorf("unmarshal error %s", strings.Replace(
 			uError.Error(), "\u00a0", " ", -1)[7:])
 	}
 
-	err := m.obj.validateToAndFrom()
+	err := obj.validateToAndFrom()
 	if err != nil {
 		return err
 	}
@@ -1590,14 +1410,14 @@ func (obj *link) validateToAndFrom() error {
 	return obj.validationResult()
 }
 
-func (obj *link) validate() error {
+func (obj *link) Validate() error {
 	// emptyVars()
 	obj.validateObj(&obj.validation, false)
 	return obj.validationResult()
 }
 
 func (obj *link) String() string {
-	str, err := obj.Marshal().ToYaml()
+	str, err := obj.ToYaml()
 	if err != nil {
 		return err.Error()
 	}
@@ -1605,16 +1425,16 @@ func (obj *link) String() string {
 }
 
 func (obj *link) Clone() (Link, error) {
-	vErr := obj.validate()
+	vErr := obj.Validate()
 	if vErr != nil {
 		return nil, vErr
 	}
 	newObj := NewLink()
-	data, err := proto.Marshal(obj.msg())
+	data, err := proto.Marshal(obj.Msg())
 	if err != nil {
 		return nil, err
 	}
-	pbErr := proto.Unmarshal(data, newObj.msg())
+	pbErr := proto.Unmarshal(data, newObj.Msg())
 	if pbErr != nil {
 		return nil, pbErr
 	}
@@ -1624,18 +1444,30 @@ func (obj *link) Clone() (Link, error) {
 // Link is link between the Ports.
 type Link interface {
 	Validation
-	// msg marshals Link to protobuf object *l1s_pb.Link
+	// Msg marshals Link to protobuf object *l1s_pb.Link
 	// and doesn't set defaults
-	msg() *l1s_pb.Link
-	// setMsg unmarshals Link from protobuf object *l1s_pb.Link
+	Msg() *l1s_pb.Link
+	// SetMsg unmarshals Link from protobuf object *l1s_pb.Link
 	// and doesn't set defaults
-	setMsg(*l1s_pb.Link) Link
-	// provides marshal interface
-	Marshal() marshalLink
-	// provides unmarshal interface
-	Unmarshal() unMarshalLink
-	// validate validates Link
-	validate() error
+	SetMsg(*l1s_pb.Link) Link
+	// ToProto marshals Link to protobuf object *l1s_pb.Link
+	ToProto() (*l1s_pb.Link, error)
+	// ToPbText marshals Link to protobuf text
+	ToPbText() (string, error)
+	// ToYaml marshals Link to YAML text
+	ToYaml() (string, error)
+	// ToJson marshals Link to JSON text
+	ToJson() (string, error)
+	// FromProto unmarshals Link from protobuf object *l1s_pb.Link
+	FromProto(msg *l1s_pb.Link) (Link, error)
+	// FromPbText unmarshals Link from protobuf text
+	FromPbText(value string) error
+	// FromYaml unmarshals Link from YAML text
+	FromYaml(value string) error
+	// FromJson unmarshals Link from JSON text
+	FromJson(value string) error
+	// Validate validates Link
+	Validate() error
 	// A stringer function
 	String() string
 	// Clones the object
@@ -1752,9 +1584,7 @@ func (obj *link) setDefault() {
 // ***** Error *****
 type _error struct {
 	validation
-	obj          *l1s_pb.Error
-	marshaller   marshalError
-	unMarshaller unMarshalError
+	obj *l1s_pb.Error
 }
 
 func NewError() Error {
@@ -1763,70 +1593,26 @@ func NewError() Error {
 	return &obj
 }
 
-func (obj *_error) msg() *l1s_pb.Error {
+func (obj *_error) Msg() *l1s_pb.Error {
 	return obj.obj
 }
 
-func (obj *_error) setMsg(msg *l1s_pb.Error) Error {
+func (obj *_error) SetMsg(msg *l1s_pb.Error) Error {
 
 	proto.Merge(obj.obj, msg)
 	return obj
 }
 
-type marshal_error struct {
-	obj *_error
-}
-
-type marshalError interface {
-	// ToProto marshals Error to protobuf object *l1s_pb.Error
-	ToProto() (*l1s_pb.Error, error)
-	// ToPbText marshals Error to protobuf text
-	ToPbText() (string, error)
-	// ToYaml marshals Error to YAML text
-	ToYaml() (string, error)
-	// ToJson marshals Error to JSON text
-	ToJson() (string, error)
-}
-
-type unMarshal_error struct {
-	obj *_error
-}
-
-type unMarshalError interface {
-	// FromProto unmarshals Error from protobuf object *l1s_pb.Error
-	FromProto(msg *l1s_pb.Error) (Error, error)
-	// FromPbText unmarshals Error from protobuf text
-	FromPbText(value string) error
-	// FromYaml unmarshals Error from YAML text
-	FromYaml(value string) error
-	// FromJson unmarshals Error from JSON text
-	FromJson(value string) error
-}
-
-func (obj *_error) Marshal() marshalError {
-	if obj.marshaller == nil {
-		obj.marshaller = &marshal_error{obj: obj}
-	}
-	return obj.marshaller
-}
-
-func (obj *_error) Unmarshal() unMarshalError {
-	if obj.unMarshaller == nil {
-		obj.unMarshaller = &unMarshal_error{obj: obj}
-	}
-	return obj.unMarshaller
-}
-
-func (m *marshal_error) ToProto() (*l1s_pb.Error, error) {
-	err := m.obj.validateToAndFrom()
+func (obj *_error) ToProto() (*l1s_pb.Error, error) {
+	err := obj.validateToAndFrom()
 	if err != nil {
 		return nil, err
 	}
-	return m.obj.msg(), nil
+	return obj.Msg(), nil
 }
 
-func (m *unMarshal_error) FromProto(msg *l1s_pb.Error) (Error, error) {
-	newObj := m.obj.setMsg(msg)
+func (obj *_error) FromProto(msg *l1s_pb.Error) (Error, error) {
+	newObj := obj.SetMsg(msg)
 	err := newObj.validateToAndFrom()
 	if err != nil {
 		return nil, err
@@ -1834,33 +1620,33 @@ func (m *unMarshal_error) FromProto(msg *l1s_pb.Error) (Error, error) {
 	return newObj, nil
 }
 
-func (m *marshal_error) ToPbText() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *_error) ToPbText() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
-	protoMarshal, err := proto.Marshal(m.obj.msg())
+	protoMarshal, err := proto.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
 	return string(protoMarshal), nil
 }
 
-func (m *unMarshal_error) FromPbText(value string) error {
-	retObj := proto.Unmarshal([]byte(value), m.obj.msg())
+func (obj *_error) FromPbText(value string) error {
+	retObj := proto.Unmarshal([]byte(value), obj.Msg())
 	if retObj != nil {
 		return retObj
 	}
 
-	vErr := m.obj.validateToAndFrom()
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return vErr
 	}
 	return retObj
 }
 
-func (m *marshal_error) ToYaml() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *_error) ToYaml() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
@@ -1869,7 +1655,7 @@ func (m *marshal_error) ToYaml() (string, error) {
 		AllowPartial:    true,
 		EmitUnpopulated: false,
 	}
-	data, err := opts.Marshal(m.obj.msg())
+	data, err := opts.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
@@ -1880,7 +1666,7 @@ func (m *marshal_error) ToYaml() (string, error) {
 	return string(data), nil
 }
 
-func (m *unMarshal_error) FromYaml(value string) error {
+func (obj *_error) FromYaml(value string) error {
 	if value == "" {
 		value = "{}"
 	}
@@ -1892,21 +1678,21 @@ func (m *unMarshal_error) FromYaml(value string) error {
 		AllowPartial:   true,
 		DiscardUnknown: false,
 	}
-	uError := opts.Unmarshal([]byte(data), m.obj.msg())
+	uError := opts.Unmarshal([]byte(data), obj.Msg())
 	if uError != nil {
 		return fmt.Errorf("unmarshal error %s", strings.Replace(
 			uError.Error(), "\u00a0", " ", -1)[7:])
 	}
 
-	vErr := m.obj.validateToAndFrom()
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return vErr
 	}
 	return nil
 }
 
-func (m *marshal_error) ToJson() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *_error) ToJson() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
@@ -1916,14 +1702,14 @@ func (m *marshal_error) ToJson() (string, error) {
 		EmitUnpopulated: false,
 		Indent:          "  ",
 	}
-	data, err := opts.Marshal(m.obj.msg())
+	data, err := opts.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
 	return string(data), nil
 }
 
-func (m *unMarshal_error) FromJson(value string) error {
+func (obj *_error) FromJson(value string) error {
 	opts := protojson.UnmarshalOptions{
 		AllowPartial:   true,
 		DiscardUnknown: false,
@@ -1931,13 +1717,13 @@ func (m *unMarshal_error) FromJson(value string) error {
 	if value == "" {
 		value = "{}"
 	}
-	uError := opts.Unmarshal([]byte(value), m.obj.msg())
+	uError := opts.Unmarshal([]byte(value), obj.Msg())
 	if uError != nil {
 		return fmt.Errorf("unmarshal error %s", strings.Replace(
 			uError.Error(), "\u00a0", " ", -1)[7:])
 	}
 
-	err := m.obj.validateToAndFrom()
+	err := obj.validateToAndFrom()
 	if err != nil {
 		return err
 	}
@@ -1950,14 +1736,14 @@ func (obj *_error) validateToAndFrom() error {
 	return obj.validationResult()
 }
 
-func (obj *_error) validate() error {
+func (obj *_error) Validate() error {
 	// emptyVars()
 	obj.validateObj(&obj.validation, false)
 	return obj.validationResult()
 }
 
 func (obj *_error) String() string {
-	str, err := obj.Marshal().ToYaml()
+	str, err := obj.ToYaml()
 	if err != nil {
 		return err.Error()
 	}
@@ -1965,16 +1751,16 @@ func (obj *_error) String() string {
 }
 
 func (obj *_error) Clone() (Error, error) {
-	vErr := obj.validate()
+	vErr := obj.Validate()
 	if vErr != nil {
 		return nil, vErr
 	}
 	newObj := NewError()
-	data, err := proto.Marshal(obj.msg())
+	data, err := proto.Marshal(obj.Msg())
 	if err != nil {
 		return nil, err
 	}
-	pbErr := proto.Unmarshal(data, newObj.msg())
+	pbErr := proto.Unmarshal(data, newObj.Msg())
 	if pbErr != nil {
 		return nil, pbErr
 	}
@@ -1984,18 +1770,30 @@ func (obj *_error) Clone() (Error, error) {
 // Error is error response generated while serving API request.
 type Error interface {
 	Validation
-	// msg marshals Error to protobuf object *l1s_pb.Error
+	// Msg marshals Error to protobuf object *l1s_pb.Error
 	// and doesn't set defaults
-	msg() *l1s_pb.Error
-	// setMsg unmarshals Error from protobuf object *l1s_pb.Error
+	Msg() *l1s_pb.Error
+	// SetMsg unmarshals Error from protobuf object *l1s_pb.Error
 	// and doesn't set defaults
-	setMsg(*l1s_pb.Error) Error
-	// provides marshal interface
-	Marshal() marshalError
-	// provides unmarshal interface
-	Unmarshal() unMarshalError
-	// validate validates Error
-	validate() error
+	SetMsg(*l1s_pb.Error) Error
+	// ToProto marshals Error to protobuf object *l1s_pb.Error
+	ToProto() (*l1s_pb.Error, error)
+	// ToPbText marshals Error to protobuf text
+	ToPbText() (string, error)
+	// ToYaml marshals Error to YAML text
+	ToYaml() (string, error)
+	// ToJson marshals Error to JSON text
+	ToJson() (string, error)
+	// FromProto unmarshals Error from protobuf object *l1s_pb.Error
+	FromProto(msg *l1s_pb.Error) (Error, error)
+	// FromPbText unmarshals Error from protobuf text
+	FromPbText(value string) error
+	// FromYaml unmarshals Error from YAML text
+	FromYaml(value string) error
+	// FromJson unmarshals Error from JSON text
+	FromJson(value string) error
+	// Validate validates Error
+	Validate() error
 	// A stringer function
 	String() string
 	// Clones the object
@@ -2022,7 +1820,7 @@ type Error interface {
 }
 
 func (obj *_error) Error() string {
-	json, err := obj.Marshal().ToJson()
+	json, err := obj.ToJson()
 	if err != nil {
 		return fmt.Sprintf("could not convert Error to JSON: %v", err)
 	}
@@ -2127,9 +1925,7 @@ func (obj *_error) setDefault() {
 // ***** Version *****
 type version struct {
 	validation
-	obj          *l1s_pb.Version
-	marshaller   marshalVersion
-	unMarshaller unMarshalVersion
+	obj *l1s_pb.Version
 }
 
 func NewVersion() Version {
@@ -2138,70 +1934,26 @@ func NewVersion() Version {
 	return &obj
 }
 
-func (obj *version) msg() *l1s_pb.Version {
+func (obj *version) Msg() *l1s_pb.Version {
 	return obj.obj
 }
 
-func (obj *version) setMsg(msg *l1s_pb.Version) Version {
+func (obj *version) SetMsg(msg *l1s_pb.Version) Version {
 
 	proto.Merge(obj.obj, msg)
 	return obj
 }
 
-type marshalversion struct {
-	obj *version
-}
-
-type marshalVersion interface {
-	// ToProto marshals Version to protobuf object *l1s_pb.Version
-	ToProto() (*l1s_pb.Version, error)
-	// ToPbText marshals Version to protobuf text
-	ToPbText() (string, error)
-	// ToYaml marshals Version to YAML text
-	ToYaml() (string, error)
-	// ToJson marshals Version to JSON text
-	ToJson() (string, error)
-}
-
-type unMarshalversion struct {
-	obj *version
-}
-
-type unMarshalVersion interface {
-	// FromProto unmarshals Version from protobuf object *l1s_pb.Version
-	FromProto(msg *l1s_pb.Version) (Version, error)
-	// FromPbText unmarshals Version from protobuf text
-	FromPbText(value string) error
-	// FromYaml unmarshals Version from YAML text
-	FromYaml(value string) error
-	// FromJson unmarshals Version from JSON text
-	FromJson(value string) error
-}
-
-func (obj *version) Marshal() marshalVersion {
-	if obj.marshaller == nil {
-		obj.marshaller = &marshalversion{obj: obj}
-	}
-	return obj.marshaller
-}
-
-func (obj *version) Unmarshal() unMarshalVersion {
-	if obj.unMarshaller == nil {
-		obj.unMarshaller = &unMarshalversion{obj: obj}
-	}
-	return obj.unMarshaller
-}
-
-func (m *marshalversion) ToProto() (*l1s_pb.Version, error) {
-	err := m.obj.validateToAndFrom()
+func (obj *version) ToProto() (*l1s_pb.Version, error) {
+	err := obj.validateToAndFrom()
 	if err != nil {
 		return nil, err
 	}
-	return m.obj.msg(), nil
+	return obj.Msg(), nil
 }
 
-func (m *unMarshalversion) FromProto(msg *l1s_pb.Version) (Version, error) {
-	newObj := m.obj.setMsg(msg)
+func (obj *version) FromProto(msg *l1s_pb.Version) (Version, error) {
+	newObj := obj.SetMsg(msg)
 	err := newObj.validateToAndFrom()
 	if err != nil {
 		return nil, err
@@ -2209,33 +1961,33 @@ func (m *unMarshalversion) FromProto(msg *l1s_pb.Version) (Version, error) {
 	return newObj, nil
 }
 
-func (m *marshalversion) ToPbText() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *version) ToPbText() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
-	protoMarshal, err := proto.Marshal(m.obj.msg())
+	protoMarshal, err := proto.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
 	return string(protoMarshal), nil
 }
 
-func (m *unMarshalversion) FromPbText(value string) error {
-	retObj := proto.Unmarshal([]byte(value), m.obj.msg())
+func (obj *version) FromPbText(value string) error {
+	retObj := proto.Unmarshal([]byte(value), obj.Msg())
 	if retObj != nil {
 		return retObj
 	}
 
-	vErr := m.obj.validateToAndFrom()
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return vErr
 	}
 	return retObj
 }
 
-func (m *marshalversion) ToYaml() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *version) ToYaml() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
@@ -2244,7 +1996,7 @@ func (m *marshalversion) ToYaml() (string, error) {
 		AllowPartial:    true,
 		EmitUnpopulated: false,
 	}
-	data, err := opts.Marshal(m.obj.msg())
+	data, err := opts.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
@@ -2255,7 +2007,7 @@ func (m *marshalversion) ToYaml() (string, error) {
 	return string(data), nil
 }
 
-func (m *unMarshalversion) FromYaml(value string) error {
+func (obj *version) FromYaml(value string) error {
 	if value == "" {
 		value = "{}"
 	}
@@ -2267,21 +2019,21 @@ func (m *unMarshalversion) FromYaml(value string) error {
 		AllowPartial:   true,
 		DiscardUnknown: false,
 	}
-	uError := opts.Unmarshal([]byte(data), m.obj.msg())
+	uError := opts.Unmarshal([]byte(data), obj.Msg())
 	if uError != nil {
 		return fmt.Errorf("unmarshal error %s", strings.Replace(
 			uError.Error(), "\u00a0", " ", -1)[7:])
 	}
 
-	vErr := m.obj.validateToAndFrom()
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return vErr
 	}
 	return nil
 }
 
-func (m *marshalversion) ToJson() (string, error) {
-	vErr := m.obj.validateToAndFrom()
+func (obj *version) ToJson() (string, error) {
+	vErr := obj.validateToAndFrom()
 	if vErr != nil {
 		return "", vErr
 	}
@@ -2291,14 +2043,14 @@ func (m *marshalversion) ToJson() (string, error) {
 		EmitUnpopulated: false,
 		Indent:          "  ",
 	}
-	data, err := opts.Marshal(m.obj.msg())
+	data, err := opts.Marshal(obj.Msg())
 	if err != nil {
 		return "", err
 	}
 	return string(data), nil
 }
 
-func (m *unMarshalversion) FromJson(value string) error {
+func (obj *version) FromJson(value string) error {
 	opts := protojson.UnmarshalOptions{
 		AllowPartial:   true,
 		DiscardUnknown: false,
@@ -2306,13 +2058,13 @@ func (m *unMarshalversion) FromJson(value string) error {
 	if value == "" {
 		value = "{}"
 	}
-	uError := opts.Unmarshal([]byte(value), m.obj.msg())
+	uError := opts.Unmarshal([]byte(value), obj.Msg())
 	if uError != nil {
 		return fmt.Errorf("unmarshal error %s", strings.Replace(
 			uError.Error(), "\u00a0", " ", -1)[7:])
 	}
 
-	err := m.obj.validateToAndFrom()
+	err := obj.validateToAndFrom()
 	if err != nil {
 		return err
 	}
@@ -2325,14 +2077,14 @@ func (obj *version) validateToAndFrom() error {
 	return obj.validationResult()
 }
 
-func (obj *version) validate() error {
+func (obj *version) Validate() error {
 	// emptyVars()
 	obj.validateObj(&obj.validation, false)
 	return obj.validationResult()
 }
 
 func (obj *version) String() string {
-	str, err := obj.Marshal().ToYaml()
+	str, err := obj.ToYaml()
 	if err != nil {
 		return err.Error()
 	}
@@ -2340,16 +2092,16 @@ func (obj *version) String() string {
 }
 
 func (obj *version) Clone() (Version, error) {
-	vErr := obj.validate()
+	vErr := obj.Validate()
 	if vErr != nil {
 		return nil, vErr
 	}
 	newObj := NewVersion()
-	data, err := proto.Marshal(obj.msg())
+	data, err := proto.Marshal(obj.Msg())
 	if err != nil {
 		return nil, err
 	}
-	pbErr := proto.Unmarshal(data, newObj.msg())
+	pbErr := proto.Unmarshal(data, newObj.Msg())
 	if pbErr != nil {
 		return nil, pbErr
 	}
@@ -2359,18 +2111,30 @@ func (obj *version) Clone() (Version, error) {
 // Version is version details
 type Version interface {
 	Validation
-	// msg marshals Version to protobuf object *l1s_pb.Version
+	// Msg marshals Version to protobuf object *l1s_pb.Version
 	// and doesn't set defaults
-	msg() *l1s_pb.Version
-	// setMsg unmarshals Version from protobuf object *l1s_pb.Version
+	Msg() *l1s_pb.Version
+	// SetMsg unmarshals Version from protobuf object *l1s_pb.Version
 	// and doesn't set defaults
-	setMsg(*l1s_pb.Version) Version
-	// provides marshal interface
-	Marshal() marshalVersion
-	// provides unmarshal interface
-	Unmarshal() unMarshalVersion
-	// validate validates Version
-	validate() error
+	SetMsg(*l1s_pb.Version) Version
+	// ToProto marshals Version to protobuf object *l1s_pb.Version
+	ToProto() (*l1s_pb.Version, error)
+	// ToPbText marshals Version to protobuf text
+	ToPbText() (string, error)
+	// ToYaml marshals Version to YAML text
+	ToYaml() (string, error)
+	// ToJson marshals Version to JSON text
+	ToJson() (string, error)
+	// FromProto unmarshals Version from protobuf object *l1s_pb.Version
+	FromProto(msg *l1s_pb.Version) (Version, error)
+	// FromPbText unmarshals Version from protobuf text
+	FromPbText(value string) error
+	// FromYaml unmarshals Version from YAML text
+	FromYaml(value string) error
+	// FromJson unmarshals Version from JSON text
+	FromJson(value string) error
+	// Validate validates Version
+	Validate() error
 	// A stringer function
 	String() string
 	// Clones the object
