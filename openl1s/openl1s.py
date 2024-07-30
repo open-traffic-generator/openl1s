@@ -1,4 +1,4 @@
-# Open Traffic Generator L1S(Layer1Switch) Model API 0.0.1
+# Open Traffic Generator L1S(Layer1Switch) Model API 0.0.2
 # License: MIT
 
 import importlib
@@ -474,6 +474,17 @@ class OpenApiValidator(object):
             return False
         return all([True if int(bin) == 0 or int(bin) == 1 else False for bin in value])
 
+    def validate_oid(self, value):
+        segments = value.split(".")
+        if len(segments) < 2:
+            return False
+        for segment in segments:
+            if not segment.isnumeric():
+                return False
+            if not (0 <= int(segment) <= 4294967295):
+                return False
+        return True
+
     def types_validation(
         self,
         value,
@@ -677,10 +688,13 @@ class OpenApiObject(OpenApiBase, OpenApiValidator):
                 "_DEFAULTS" in dir(self._properties[name])
                 and "choice" in self._properties[name]._DEFAULTS
             ):
-                getattr(
-                    self._properties[name],
-                    self._properties[name]._DEFAULTS["choice"],
-                )
+                choice_str = self._properties[name]._DEFAULTS["choice"]
+
+                if choice_str in self._properties[name]._TYPES:
+                    getattr(
+                        self._properties[name],
+                        self._properties[name]._DEFAULTS["choice"],
+                    )
         else:
             if default_value is None and name in self._DEFAULTS:
                 self._set_choice(name)
@@ -965,15 +979,18 @@ class OpenApiObject(OpenApiBase, OpenApiValidator):
 
             if isinstance(property_name, OpenApiObject):
                 if "self" in self._STATUS and property_value is None:
-                    print("[WARNING]: %s" % self._STATUS["self"])
+                    print("[WARNING]: %s" % self._STATUS["self"], file=sys.stderr)
 
                 return
 
             enum_key = "%s.%s" % (property_name, property_value)
             if property_name in self._STATUS:
-                print("[WARNING]: %s" % self._STATUS[property_name])
+                print(
+                    "[WARNING]: %s" % self._STATUS[property_name],
+                    file=sys.stderr,
+                )
             elif enum_key in self._STATUS:
-                print("[WARNING]: %s" % self._STATUS[enum_key])
+                print("[WARNING]: %s" % self._STATUS[enum_key], file=sys.stderr)
 
 
 class OpenApiIter(OpenApiBase):
@@ -1101,17 +1118,35 @@ class Config(OpenApiObject):
 
     _TYPES = {
         "links": {"type": "LinkIter"},
+        "operation": {
+            "type": str,
+            "enum": [
+                "CREATE",
+                "DELETE",
+            ],
+        },
     }  # type: Dict[str, str]
 
     _REQUIRED = ()  # type: tuple(str)
 
-    _DEFAULTS = {}  # type: Dict[str, Union(type)]
+    _DEFAULTS = {
+        "operation": "CREATE",
+    }  # type: Dict[str, Union(type)]
+
+    CREATE = "CREATE"  # type: str
+    DELETE = "DELETE"  # type: str
 
     _STATUS = {}  # type: Dict[str, Union(type)]
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, operation="CREATE"):
         super(Config, self).__init__()
         self._parent = parent
+        self._set_property("operation", operation)
+
+    def set(self, operation=None):
+        for property_name, property_value in locals().items():
+            if property_name != "self" and property_value is not None:
+                self._set_property(property_name, property_value)
 
     @property
     def links(self):
@@ -1123,6 +1158,27 @@ class Config(OpenApiObject):
         Returns: LinkIter
         """
         return self._get_property("links", LinkIter, self._parent, self._choice)
+
+    @property
+    def operation(self):
+        # type: () -> Union[Literal["CREATE"], Literal["DELETE"]]
+        """operation getter
+
+        Operation to Create or Delete Links
+
+        Returns: Union[Literal["CREATE"], Literal["DELETE"]]
+        """
+        return self._get_property("operation")
+
+    @operation.setter
+    def operation(self, value):
+        """operation setter
+
+        Operation to Create or Delete Links
+
+        value: Union[Literal["CREATE"], Literal["DELETE"]]
+        """
+        self._set_property("operation", value)
 
 
 class Link(OpenApiObject):
@@ -1500,15 +1556,15 @@ class Api(object):
 
     def __init__(self, **kwargs):
         self._version_meta = self.version()
-        self._version_meta.api_spec_version = "0.0.1"
-        self._version_meta.sdk_version = "0.0.1"
+        self._version_meta.api_spec_version = "0.0.2"
+        self._version_meta.sdk_version = "0.0.2"
         self._version_check = kwargs.get("version_check")
         if self._version_check is None:
             self._version_check = False
         self._version_check_err = None
 
     def add_warnings(self, msg):
-        print("[WARNING]: %s" % msg)
+        print("[WARNING]: %s" % msg, file=sys.stderr)
         self.__warnings__.append(msg)
 
     def _deserialize_error(self, err_string):

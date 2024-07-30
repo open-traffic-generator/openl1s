@@ -3,7 +3,7 @@ info:
   title: Open Traffic Generator L1S(Layer1Switch) Model API
   description: |-
     OTG L1S(Layer1Switch) Model
-  version: 0.0.1
+  version: 0.0.2
   contact:
     url: https://github.com/open-traffic-generator/l1s
   license:
@@ -83,6 +83,20 @@ components:
           items:
             $ref: '#/components/schemas/Link'
           x-field-uid: 1
+        operation:
+          description: |-
+            Operation to Create or Delete Links
+          type: string
+          x-field-uid: 2
+          default: CREATE
+          x-enum:
+            CREATE:
+              x-field-uid: 1
+            DELETE:
+              x-field-uid: 2
+          enum:
+          - CREATE
+          - DELETE
     Link:
       description: |-
         Link between the Ports.
